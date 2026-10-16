@@ -82,7 +82,7 @@ function buildBase(report: Report | null): Omit<Row, 'cls'>[] {
 // - `fixes` when a planned fix changes.
 class Derived {
   base = $derived(buildBase(app.report));
-  rules: Rules = $derived(app.report ? effectiveRules(app.report.rules) : { accepted: [], redirectors: [], ignored: [] });
+  rules: Rules = $derived(app.report ? effectiveRules(app.report.rules, app.report.defaults) : { accepted: [], redirectors: [], ignored: [] });
   rows: Row[] = $derived(this.base.map((r) => ({ ...r, cls: classify(r.result, r.url, this.rules) })));
   fixes = $derived(new Map<string, LinkFix>((app.report?.fixes ?? []).map((f) => [f.url, f])));
 }

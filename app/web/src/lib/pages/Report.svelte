@@ -82,9 +82,11 @@
   const shown = $derived(rows.slice(0, limit));
   // URLs for "Recheck flagged links": everything not OK and not ignored, across all channels.
   const flagged = $derived(data.rows.filter((r) => isFlagged(r.cls.category)).map((r) => r.url));
-  // How many problem links each video has, for the "+N other problem links" hint.
-  // Unverifiable links don't count: they're probably fine, just blocked.
-  const countsAsProblem = (r: Row) => isFlagged(r.cls.category) && r.cls.category !== 'unverifiable';
+  // How many problem links each video has, for the "+N other problem links" hint and the
+  // "Fix description" button. Same FIXABLE rule as the description drawer, so the counts match
+  // what it lists: unverifiable links (probably fine, just blocked) and pending ones (not
+  // checked yet) don't count.
+  const countsAsProblem = (r: Row) => FIXABLE.includes(r.cls.category);
   const problemsByVideo = $derived.by(() => {
     const perVideo = new Map<string, number>();
     for (const r of data.rows) if (countsAsProblem(r)) for (const v of r.videos) perVideo.set(v.id, (perVideo.get(v.id) ?? 0) + 1);

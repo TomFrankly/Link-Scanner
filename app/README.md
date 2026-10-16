@@ -10,8 +10,8 @@ Scans the public video descriptions of YouTube channels and flags links that are
   - `fetch` messages page through a channel's uploads (50 videos per message) via the YouTube Data API, using the server's API key (public data only).
   - `check` messages follow each link's redirect chain, 6 links per message, grouped by host and spaced per host.
 - **Shared results:** a link's check result is stored once and shared by every workspace. Each workspace's exception lists are applied in the browser, so rule changes reclassify instantly.
-- **Quota:** each YouTube call is metered against `GLOBAL_DAILY_UNITS` (default 8,000 of the key's 10,000). Each workspace also has daily scan limits and a channel cap, editable on the Admin page.
-- **Defaults:** app-wide accepted redirects and redirector domains live in `shared/rules.ts` and change with a deploy. Workspaces can turn individual defaults off.
+- **Quota:** each YouTube call is metered against `GLOBAL_DAILY_UNITS` (default 8,000 of the key's 10,000). Each workspace also has daily scan limits and a channel cap, editable on the Admin page. Both daily counts reset at midnight Pacific time, when YouTube resets its own quota.
+- **Defaults:** app-wide accepted redirects and redirector domains live in `shared/rules.ts` and change with a deploy. A deployment can add its own accepted redirects with the `EXTRA_ACCEPTED_REDIRECTS` var in `wrangler.jsonc` (comma-separated `from>to` pairs, e.g. `old-brand.com>new-brand.com`). Workspaces can turn individual defaults off.
 
 ## Layout
 
@@ -153,3 +153,7 @@ The admin gets an email when a full scan finishes or any scan fails (`worker/not
 ### Stalled scans
 
 A cron runs every 10 minutes (`sweepStalledScans`). It re-queues links that a stalled scan hasn't checked (queue messages are dropped after repeated failures), and gives up after three restarts.
+
+### Known limits
+
+- **About 25,000 links per scan.** A scan stores the list of links it checks as one value in D1 (`scans.urls`, used to resume stalled scans), and D1 caps a value at 2 MB. A scan with more distinct links than that fails when checking starts. On Workers Free, the daily queue allowance runs out well before this, so it isn't handled.

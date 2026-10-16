@@ -13,7 +13,7 @@
 // The cron (sweepStalledScans) restarts scans whose messages were lost.
 import { checkUrl, extractUrls, hostOf, type LinkResult } from '../shared/core.ts';
 import { SKIP_DOMAINS } from '../shared/rules.ts';
-import { HttpError, now, today, type CheckItem, type Env, type Job } from './env.ts';
+import { HttpError, now, today, todayStart, type CheckItem, type Env, type Job } from './env.ts';
 import { BudgetExceeded, makeFetcher, SUBREQUEST_BUDGET } from './fetcher.ts';
 import { notifyScanEnded } from './notify.ts';
 import { DEFAULT_DAILY_UNITS, fetchUploadsPage, QuotaError, resolveChannel } from './youtube.ts';
@@ -106,12 +106,12 @@ export async function latestScan(env: Env, workspaceId: string): Promise<ScanRow
   return s;
 }
 
-/** How many full scans and rechecks this workspace started today (UTC), for its daily limits. */
+/** How many full scans and rechecks this workspace started today (Pacific time), for its daily limits. */
 export async function usageToday(env: Env, workspaceId: string) {
   const r = await env.DB.prepare(
     "SELECT COALESCE(SUM(kind = 'full'), 0) AS full, COALESCE(SUM(kind != 'full'), 0) AS rechecks FROM scans WHERE workspace_id = ? AND created_at >= ?",
   )
-    .bind(workspaceId, today())
+    .bind(workspaceId, todayStart())
     .first<{ full: number; rechecks: number }>();
   return { full: r?.full ?? 0, rechecks: r?.rechecks ?? 0 };
 }
@@ -141,6 +141,10 @@ async function workspaceUrls(
 /**
  * Moves a scan into the checking phase: stores the URL list (the cron uses it to resume)
  * and queues the check messages. An empty list finishes the scan at once.
+ * Known limit: the list is one JSON text value, and D1 caps a value at 2 MB, so a scan of
+ * roughly 25,000+ distinct URLs fails here. Not handled on purpose: a scan that size would
+ * already need thousands of queue messages, past what the Workers Free plan allows per day.
+ * See "Known limits" in README.md.
  */
 async function startChecks(env: Env, scanId: number, urls: string[]) {
   if (!urls.length) {
@@ -181,7 +185,7 @@ async function refreshChannels(env: Env, ids: string[]) {
     return [
       env.DB.prepare(
         'UPDATE channels SET title = ?, handle = ?, thumbnail = ?, video_count = CASE WHEN fetched_at IS NULL THEN ? ELSE video_count END WHERE id = ?',
-      ).bind(c.title, c.handle, c.thumbnail, c.videoCount, c.id),
+      ).bind(c.title, c.handle, c.thumbnail ?? '', c.videoCount, c.id), // '' = looked up, none (see report() in api.ts)
     ];
   });
   if (updates.length) await env.DB.batch(updates);

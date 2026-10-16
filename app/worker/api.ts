@@ -22,9 +22,9 @@
 // A browser won't send any of those from another site without a CORS preflight, and this
 // API never answers one, so another site can't act with a signed-in user's cookie.
 import { cleanDomain } from '../shared/core.ts';
-import { acceptedKey, DEFAULT_ACCEPTED, DEFAULT_REDIRECTORS, type RuleType } from '../shared/rules.ts';
+import { acceptedKey, appDefaults, type RuleType } from '../shared/rules.ts';
 import { currentEmail } from './auth.ts';
-import { HttpError, now, today, type Env } from './env.ts';
+import { HttpError, now, today, todayStart, type Env } from './env.ts';
 import { createScan, estimates, latestScan, usageToday, type ScanKind, type WorkspaceRow } from './scan.ts';
 import { DEFAULT_DAILY_UNITS, fetchDescription, QuotaError, resolveChannel } from './youtube.ts';
 
@@ -57,12 +57,19 @@ async function body<T>(req: Request): Promise<T> {
   if (!(req.headers.get('content-type') ?? '').includes('application/json')) throw new HttpError(415, 'Expected JSON');
   const text = await req.text();
   if (text.length > MAX_BODY_CHARS) throw new HttpError(413, 'Request too large');
+  let parsed: unknown;
   try {
-    return JSON.parse(text) as T;
+    parsed = JSON.parse(text);
   } catch {
     throw new HttpError(400, 'Invalid JSON');
   }
+  // Routes read fields off the body, so null, arrays and bare values are rejected here.
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new HttpError(400, 'Expected a JSON object');
+  return parsed as T;
 }
+
+/** A body field as a string; anything else reads as '', so validation 400s instead of throwing. */
+const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
 // ---------- identity and workspaces ----------
 
@@ -114,9 +121,9 @@ async function myWorkspaces(env: Env, me: Me) {
 
 /**
  * The access check for every /api/w/:id route: returns the workspace and the caller's role
- * in it, or throws 404/403. A member row wins over admin status, so the admin who is also a
- * plain member somewhere acts as a member there. An owner who lost owner permission falls
- * through to the admin check, then 403.
+ * in it, or throws 404/403. Admin status wins over a plain member row, so the admin keeps
+ * admin powers (rename, manage members) in a workspace where they're also a member. An owner
+ * who lost owner permission falls through to the admin check, then 403.
  */
 async function workspaceFor(env: Env, me: Me, id: string): Promise<{ ws: WorkspaceRow; role: Role }> {
   const ws = await env.DB.prepare('SELECT * FROM workspaces WHERE id = ?').bind(id).first<WorkspaceRow>();
@@ -124,8 +131,9 @@ async function workspaceFor(env: Env, me: Me, id: string): Promise<{ ws: Workspa
   const m = await env.DB.prepare('SELECT role FROM members WHERE workspace_id = ? AND email = ?')
     .bind(id, me.email)
     .first<{ role: 'owner' | 'member' }>();
-  if (m && (m.role !== 'owner' || me.canOwn)) return { ws, role: m.role };
+  if (m?.role === 'owner' && me.canOwn) return { ws, role: 'owner' };
   if (me.isAdmin) return { ws, role: 'admin' };
+  if (m?.role === 'member') return { ws, role: 'member' };
   throw new HttpError(403, 'You are not a member of this workspace');
 }
 
@@ -156,13 +164,17 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
     ).bind(ws.id),
     fixesQuery(env, ws.id),
   ]);
-  // Channels added before thumbnails were stored get theirs once, on the next report load.
+  // Channels added before thumbnails were stored (thumbnail NULL) get theirs once, on the next
+  // report load. A channel YouTube has no thumbnail for, or no longer knows, is stored as ''
+  // so it isn't looked up (1 unit) again on every load; only a quota error leaves it to retry.
   const chans = channels!.results as { id: string; thumbnail: string | null }[];
-  const missing = chans.filter((c) => !c.thumbnail);
+  const missing = chans.filter((c) => c.thumbnail === null);
   if (missing.length) {
     const found = await Promise.allSettled(missing.map((c) => resolveChannel(env, c.id)));
     const updates = found.flatMap((f, i) =>
-      f.status === 'fulfilled' && f.value.thumbnail ? [{ channel: missing[i]!, thumbnail: f.value.thumbnail }] : [],
+      f.status === 'rejected' && f.reason instanceof QuotaError
+        ? []
+        : [{ channel: missing[i]!, thumbnail: (f.status === 'fulfilled' && f.value.thumbnail) || '' }],
     );
     if (updates.length) {
       await env.DB.batch(
@@ -179,7 +191,7 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
     links: links!.results, // `chain` stays a JSON string; the browser parses it
     rules: rules!.results,
     fixes: fixes!.results,
-    defaults: { accepted: DEFAULT_ACCEPTED, redirectors: DEFAULT_REDIRECTORS },
+    defaults: appDefaults(env.EXTRA_ACCEPTED_REDIRECTS), // built-in plus this deployment's extras
     estimates: await estimates(env, ws.id),
     ...(await scanState(env, ws)),
   };
@@ -256,7 +268,7 @@ async function addChannel(env: Env, ws: WorkspaceRow, me: Me, input: string) {
       `INSERT INTO channels (id, title, handle, uploads_playlist, video_count, thumbnail) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET title = excluded.title, handle = excluded.handle, uploads_playlist = excluded.uploads_playlist,
          thumbnail = excluded.thumbnail, video_count = CASE WHEN channels.fetched_at IS NULL THEN excluded.video_count ELSE channels.video_count END`,
-    ).bind(c.id, c.title, c.handle, c.uploads, c.videoCount, c.thumbnail),
+    ).bind(c.id, c.title, c.handle, c.uploads, c.videoCount, c.thumbnail ?? ''), // '' = looked up, none
     env.DB.prepare('INSERT OR IGNORE INTO workspace_channels (workspace_id, channel_id, added_by, added_at) VALUES (?, ?, ?, ?)').bind(
       ws.id,
       c.id,
@@ -272,6 +284,8 @@ async function addChannel(env: Env, ws: WorkspaceRow, me: Me, input: string) {
  * existing rule's id if an identical one is already saved.
  */
 async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; value: string; value2?: string; note?: string }) {
+  // Untrusted JSON: non-string fields read as '' (see str), so they fail validation with a 400.
+  r = { type: r.type, value: str(r.value), value2: str(r.value2), note: str(r.note) };
   let value = '';
   let value2: string | null = null;
   if (r.type === 'accepted') {
@@ -289,9 +303,10 @@ async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; 
   } else if (r.type === 'disabled') {
     value = r.value;
     value2 = r.value2 ?? '';
+    const defaults = appDefaults(env.EXTRA_ACCEPTED_REDIRECTS);
     const known =
-      (value === 'accepted' && DEFAULT_ACCEPTED.some((p) => acceptedKey(p) === value2)) ||
-      (value === 'redirector' && DEFAULT_REDIRECTORS.includes(value2));
+      (value === 'accepted' && defaults.accepted.some((p) => acceptedKey(p) === value2)) ||
+      (value === 'redirector' && defaults.redirectors.includes(value2));
     if (!known) throw new HttpError(400, 'Unknown default rule');
   } else {
     throw new HttpError(400, 'Unknown rule type');
@@ -303,7 +318,7 @@ async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; 
   return env.DB.prepare(
     'INSERT INTO rules (workspace_id, type, value, value2, note, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
   )
-    .bind(ws.id, r.type, value, value2, r.note?.trim().slice(0, MAX_RULE_NOTE) || null, me.email, now())
+    .bind(ws.id, r.type, value, value2, str(r.note).trim().slice(0, MAX_RULE_NOTE) || null, me.email, now())
     .first();
 }
 
@@ -331,7 +346,7 @@ async function adminOverview(env: Env) {
               (SELECT COUNT(*) FROM workspace_channels wc WHERE wc.workspace_id = w.id) AS channels,
               (SELECT COUNT(*) FROM scans s WHERE s.workspace_id = w.id AND s.created_at >= ?1) AS scansToday
        FROM workspaces w ORDER BY w.created_at`,
-    ).bind(today()),
+    ).bind(todayStart()),
     env.DB.prepare('SELECT units FROM quota WHERE day = ?').bind(today()),
   ]);
   return {
@@ -357,7 +372,12 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
     await ensureOwnWorkspace(env, me);
     const path = new URL(req.url).pathname.replace(/\/+$/, '');
     const method = req.method;
-    const seg = path.split('/').slice(2).map(decodeURIComponent); // path segments after /api
+    let seg: string[]; // path segments after /api
+    try {
+      seg = path.split('/').slice(2).map(decodeURIComponent);
+    } catch {
+      throw new HttpError(400, 'Bad URL'); // a malformed % escape
+    }
 
     if (path === '/api/me' && method === 'GET') {
       return json({ email: me.email, isAdmin: me.isAdmin, canOwn: me.canOwn, workspaces: await myWorkspaces(env, me) });
@@ -370,7 +390,7 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
       if (!sub && method === 'PATCH') {
         if (!canManageMembers(role)) throw new HttpError(403, 'Only the owner can rename the workspace');
         const b = await body<{ name?: string }>(req);
-        const name = b.name?.trim().slice(0, MAX_WORKSPACE_NAME);
+        const name = str(b.name).trim().slice(0, MAX_WORKSPACE_NAME);
         if (!name) throw new HttpError(400, 'Enter a name');
         await env.DB.prepare('UPDATE workspaces SET name = ? WHERE id = ?').bind(name, ws.id).run();
         return json({ ok: true });
@@ -384,7 +404,7 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
       }
       if (sub === 'channels' && method === 'POST') {
         const b = await body<{ input: string }>(req);
-        return json(await addChannel(env, ws, me, b.input));
+        return json(await addChannel(env, ws, me, str(b.input)));
       }
       if (sub === 'channels' && seg[3] && method === 'DELETE') {
         await env.DB.prepare('DELETE FROM workspace_channels WHERE workspace_id = ? AND channel_id = ?').bind(ws.id, seg[3]).run();
@@ -415,7 +435,7 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
       if (sub === 'members' && method === 'POST') {
         if (!canManageMembers(role)) throw new HttpError(403, 'Only the owner can invite people');
         const b = await body<{ email: string }>(req);
-        const invite = b.email?.trim().toLowerCase();
+        const invite = str(b.email).trim().toLowerCase();
         if (!invite || !EMAIL_RE.test(invite)) throw new HttpError(400, 'Enter a valid email');
         await env.DB.prepare(
           "INSERT OR IGNORE INTO members (workspace_id, email, role, added_by, added_at) VALUES (?, ?, 'member', ?, ?)",
@@ -437,10 +457,10 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
       if (!seg[1] && method === 'GET') return json(await adminOverview(env));
       if (seg[1] === 'owners' && method === 'POST') {
         const b = await body<{ email: string; note?: string }>(req);
-        const e = b.email?.trim().toLowerCase();
+        const e = str(b.email).trim().toLowerCase();
         if (!e || !EMAIL_RE.test(e)) throw new HttpError(400, 'Enter a valid email');
         await env.DB.prepare('INSERT OR REPLACE INTO allowed_owners (email, note, added_by, added_at) VALUES (?, ?, ?, ?)')
-          .bind(e, b.note?.trim().slice(0, MAX_OWNER_NOTE) || null, me.email, now())
+          .bind(e, str(b.note).trim().slice(0, MAX_OWNER_NOTE) || null, me.email, now())
           .run();
         return json(await adminOverview(env));
       }

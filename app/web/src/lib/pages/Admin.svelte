@@ -99,7 +99,7 @@
     <Card.Root>
       <Card.Header>
         <Card.Title>YouTube quota today</Card.Title>
-        <Card.Description>Shared by every workspace. Scans pause at the ceiling until midnight UTC.</Card.Description>
+        <Card.Description>Shared by every workspace. Scans pause at the ceiling until midnight Pacific time, when YouTube resets.</Card.Description>
       </Card.Header>
       <Card.Content class="space-y-2">
         <div class="text-2xl font-semibold tabular-nums">

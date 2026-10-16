@@ -15,7 +15,7 @@ const PAGE_SIZE = 50;
 export class QuotaError extends Error {}
 
 /**
- * Records `units` against today's (UTC) total and throws QuotaError if that pushes it over
+ * Records `units` against today's (Pacific time, when YouTube resets) total and throws QuotaError if that pushes it over
  * the ceiling. The increment is one atomic upsert, so concurrent queue invocations can't
  * both slip under the limit. Units are counted before the call, so failed calls count too.
  */
@@ -26,7 +26,7 @@ async function spendUnits(env: Env, units: number) {
   )
     .bind(today(), units)
     .first<{ units: number }>();
-  if ((row?.units ?? 0) > limit) throw new QuotaError('The app reached its daily YouTube quota. Try again tomorrow (UTC).');
+  if ((row?.units ?? 0) > limit) throw new QuotaError('The app reached its daily YouTube quota. Try again after midnight Pacific time.');
 }
 
 /**

@@ -1,6 +1,7 @@
 // Shared types for the Worker: the bindings and settings from wrangler.jsonc (`Env`), the
 // queue message shapes (`Job`), and a couple of tiny helpers every module uses.
 // Secrets (YOUTUBE_API_KEY) are set with `wrangler secret put` and never sent to the browser.
+import { pacificDay, pacificDayStart } from '../shared/day.ts';
 
 export interface Env {
   DB: D1Database;
@@ -17,8 +18,13 @@ export interface Env {
   /** Cloudflare Access team domain and app audience tag, used to verify the sign-in JWT. */
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
-  /** App-wide YouTube quota ceiling per UTC day, in units (default DEFAULT_DAILY_UNITS). */
+  /** App-wide YouTube quota ceiling per Pacific-time day, in units (default DEFAULT_DAILY_UNITS). */
   GLOBAL_DAILY_UNITS?: string;
+  /**
+   * Extra app-wide accepted redirects for this deployment, added to the built-in ones in
+   * shared/rules.ts: "old.com>new.com, other.com>new.com". Malformed entries are ignored.
+   */
+  EXTRA_ACCEPTED_REDIRECTS?: string;
   /** Optional email notifications to the admin (see notify.ts). */
   EMAIL?: SendEmail;
   NOTIFY_FROM?: string;
@@ -53,5 +59,11 @@ export class HttpError extends Error {
 
 /** ISO timestamp. Stored as text in D1, so string comparison orders them correctly. */
 export const now = () => new Date().toISOString();
-/** Today's date in UTC (YYYY-MM-DD): the key for daily quota and per-workspace limits. */
-export const today = () => now().slice(0, 10);
+/**
+ * Today's date in Pacific time (YYYY-MM-DD), when YouTube resets its quota: the key for the
+ * daily quota ledger. (Before this, quota rows were keyed by UTC date; on the switchover day
+ * the key changes mid-day, so that day's count restarts early. No migration needed.)
+ */
+export const today = () => pacificDay();
+/** When today (Pacific) began, as an ISO timestamp, for counting today's scans by `created_at`. */
+export const todayStart = () => pacificDayStart();

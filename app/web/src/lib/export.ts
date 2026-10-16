@@ -23,6 +23,9 @@ const safe = (s: string) => (/^[=+\-@\t\r]/.test(s) ? `'${s}` : s);
 
 type Cell = string | number | null;
 
+/** The Details cell: the classifier's note, or "Accepted redirect" for one a rule accepted. */
+const detailText = (r: Row) => r.cls.detail ?? (r.cls.accepted ? 'Accepted redirect' : '');
+
 /** One row per link, matching HEADER. `join` separates the per-video values packed into one cell. */
 function linkRows(rows: Row[], channelTitle: Record<string, string>, join: string): Cell[][] {
   return rows.map((r) => {
@@ -31,7 +34,7 @@ function linkRows(rows: Row[], channelTitle: Record<string, string>, join: strin
       CATEGORY[r.cls.category].label,
       r.url,
       r.result && r.result.finalUrl !== r.url ? r.result.finalUrl : '',
-      r.cls.detail ?? (r.cls.accepted ? 'Accepted redirect' : ''),
+      detailText(r),
       // The chain lists every URL visited, starting with the link itself.
       r.result ? Math.max(0, r.result.chain.length - 1) : null,
       r.videos.length,
@@ -55,7 +58,7 @@ function videoRows(rows: Row[], channelTitle: Record<string, string>): Cell[][] 
       CATEGORY[r.cls.category].label,
       r.url,
       r.result && r.result.finalUrl !== r.url ? r.result.finalUrl : '',
-      r.cls.detail ?? '',
+      detailText(r),
     ]),
   );
 }

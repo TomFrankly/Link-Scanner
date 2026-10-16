@@ -30,6 +30,11 @@
     // Admin emails need a `send_email` binding named EMAIL plus this sender address
     // (see worker/notify.ts and the README). Empty means notifications are off.
     "NOTIFY_FROM": "",
+    // Extra accepted redirects for every workspace, added to the built-in ones in
+    // shared/rules.ts: comma-separated "from>to" domain pairs, e.g. "old-brand.com>new-brand.com".
+    // A link from the first domain that lands on the second counts as OK. Workspaces can turn
+    // each one off on the Exceptions page. Malformed entries are ignored.
+    "EXTRA_ACCEPTED_REDIRECTS": "",
     // Filled in after Cloudflare Access is turned on for this Worker (see README).
     // While these are empty, every API call fails with "Cloudflare Access is not configured".
     "ACCESS_TEAM_DOMAIN": "",
