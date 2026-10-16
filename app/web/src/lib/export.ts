@@ -95,7 +95,7 @@ export type SavedDescriptions = Map<string, { d: string | null; at: string | nul
 /**
  * One row per video in the export, matching DESCRIPTIONS_HEADER, newest video first. The
  * description has this workspace's saved text edits and planned link fixes applied, in that
- * order (the same code as the Fix description drawer); links without a planned fix are left as
+ * order (the same code as the Description tab); links without a planned fix are left as
  * they are, so the text is safe to paste.
  * `allRows` is every link in the workspace, so a video's fixes apply even to links the current
  * filter hides.

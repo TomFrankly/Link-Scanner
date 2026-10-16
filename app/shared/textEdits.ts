@@ -1,8 +1,8 @@
 // Saved hand edits ("text edits"): find-and-replace rules a workspace keeps for its descriptions.
 //
-// When someone edits a description by hand in the Fix description drawer and saves,
+// When someone edits a description by hand in a video's Description tab and saves,
 // editsFromHandEdit works out which lines they changed and turns each change into a rule:
-// "these lines become those lines". The drawer then offers to apply the same rule to every
+// "these lines become those lines". The app then offers to apply the same rule to every
 // other video whose description has the same lines, like a footer or sponsor block.
 //
 // Rules match whole lines, never part of a line, so changing "2025" in one sentence can't
@@ -13,7 +13,7 @@
 // A change that only swaps one link for another is better saved as a planned link fix, which
 // replaces the link in every video whatever text surrounds it; splitLinkSwaps finds those.
 //
-// Pure functions, used by the drawer and the Excel export; shared/textEdits.test.ts covers them.
+// Pure functions, used by the Description tab and the Excel export; shared/textEdits.test.ts covers them.
 import { urlsIn } from './fixes.ts';
 
 /** A saved text edit, as the API returns it. */
@@ -67,7 +67,7 @@ export interface EditResult {
   text: string;
   /** How many places a rule changed. */
   changed: number;
-  /** Non-blank lines the rules wrote, for highlighting them in the drawer. */
+  /** Non-blank lines the rules wrote, for highlighting them in the editor. */
   added: string[];
   /** Indexes into `edits` of the rules that changed something. */
   used: number[];
@@ -158,7 +158,7 @@ function mergeAcrossBlanks(hunks: Hunk[], a: string[]): Hunk[] {
   return out;
 }
 
-// The drawer marks links without a planned fix as `[FIX THIS: url (reason)]` (fixes.ts). An edit
+// The editor marks links without a planned fix as `[FIX THIS: url (reason)]` (fixes.ts). An edit
 // near one keeps the marker in the edited line, so it's turned back into the plain link before
 // saving: otherwise the marker text would end up in exported descriptions.
 const MARKER_RE = /\[FIX THIS: (https?:\/\/\S+?) \([^)]*\)\]/g;
@@ -166,7 +166,7 @@ const unmark = (s: string) => s.replace(MARKER_RE, '$1');
 
 /**
  * Turns a hand edit into rules. `source` is the description the rules run on (YouTube's text
- * with earlier rules applied), `shown` is what the drawer generated from it (with link fixes, and
+ * with earlier rules applied), `shown` is what the editor showed from it (with link fixes, and
  * `origin` mapping each shown line back to a `source` line), and `edited` is the user's text.
  *
  * Each changed block of lines becomes one rule whose `find` is the matching `source` lines. An

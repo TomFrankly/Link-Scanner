@@ -4,7 +4,7 @@
   // `app.report.rules`; addRule/removeRule (store.svelte.ts) save them through the API and patch
   // that list, and the report reclassifies in the browser at once, with no recheck.
   // It also lists the workspace's saved text edits (hand edits saved from the Fix description
-  // drawer), with how many videos each one currently changes.
+  // Description tab), with how many videos each one currently changes.
   import X from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';

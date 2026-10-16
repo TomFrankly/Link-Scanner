@@ -13,13 +13,13 @@
 </script>
 
 <script lang="ts">
-  // The plain-text editor in the Fix description drawer, built on CodeMirror 6. Descriptions
+  // The plain-text editor in a video's Description tab (DescriptionPanel), built on CodeMirror 6. Descriptions
   // are plain text, so what you see is exactly what gets copied. On top of the text it draws:
   // - every URL as a chip (still ordinary text you can type in); clicking one calls `onlink`,
-  //   which the drawer uses to open the link popover (Cmd/Ctrl-click opens the link instead);
+  //   which the panel uses to open the link popover (Cmd/Ctrl-click opens the link instead);
   // - highlights on each place the fixes changed (`needles`, found with highlightRanges, so
   //   they survive hand edits), tinted with the `tint` classes.
-  // `reveal` scrolls to a piece of text and briefly highlights its line (the drawer's locate
+  // `reveal` scrolls to a piece of text and briefly highlights its line (the locate
   // buttons). CodeMirror is loaded on first use, so it isn't in the main bundle.
   import { onMount } from 'svelte';
   import type { EditorView as View } from '@codemirror/view';
@@ -28,11 +28,12 @@
 
   let {
     value = $bindable(''),
+    ready = $bindable(false),
     needles,
     tint,
     oninput,
     onlink,
-  }: { value: string; needles: string[]; tint: string; oninput: () => void; onlink: (link: LinkClick) => void } = $props();
+  }: { value: string; ready?: boolean; needles: string[]; tint: string; oninput: () => void; onlink: (link: LinkClick) => void } = $props();
 
   type Marks = { needles: string[]; tint: string };
   let host = $state<HTMLDivElement>();
@@ -140,10 +141,11 @@
               },
             }),
             EditorView.theme({
-              '&': { height: '100%', fontSize: '0.75rem' },
+              // No fixed height: the editor grows with the text and the page scrolls.
+              '&': { fontSize: '0.75rem' },
               '&.cm-focused': { outline: 'none' },
-              '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.625', overflow: 'auto' },
-              '.cm-content': { padding: '12px', caretColor: 'var(--foreground)' },
+              '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.625' },
+              '.cm-content': { padding: '12px', minHeight: '6rem', caretColor: 'var(--foreground)' },
               '.cm-line': { padding: '0' },
               '.cm-link': {
                 borderRadius: '4px',
@@ -161,6 +163,7 @@
           ],
         }),
       });
+      ready = true;
     })();
     return () => {
       gone = true;
@@ -180,4 +183,4 @@
   });
 </script>
 
-<div bind:this={host} class="text-foreground absolute inset-0 overflow-hidden"></div>
+<div bind:this={host} class="text-foreground"></div>

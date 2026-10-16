@@ -1,7 +1,7 @@
 <script lang="ts">
-  // The small editor that opens when you click a link chip in the Fix description drawer: type a
+  // The small editor that opens when you click a link chip in a video's Description tab: type a
   // new address (Enter saves) or remove the link. It doesn't save anything itself: `onchange`
-  // hands the change to the drawer, which asks where to apply it (SaveEditsDialog: every video,
+  // hands the change to DescriptionPanel, which asks where to apply it (SaveEditsDialog: every video,
   // this channel's videos, or just this one).
   //
   // `link` is what was clicked; `source` is the scanned link it stands for. They differ when the
@@ -54,7 +54,8 @@
   }
 </script>
 
-<svelte:window onpointerdown={outside} onkeydown={(e) => e.key === 'Escape' && (e.stopPropagation(), onclose())} />
+<!-- It's placed where the link was on screen, so it closes when the page scrolls away. -->
+<svelte:window onpointerdown={outside} onscroll={onclose} onkeydown={(e) => e.key === 'Escape' && (e.stopPropagation(), onclose())} />
 
 <div
   bind:this={box}

@@ -69,8 +69,8 @@
       title: 'Fix the descriptions',
       video: 'descriptions',
       paragraphs: [
-        'Switch the report to Videos, or expand a link and click Fix description. A drawer opens with the description, your planned fixes applied, and every change highlighted.',
-        'Tweak it if you like, click Copy, and paste it into YouTube Studio. Link Checker never changes anything on YouTube itself.',
+        'Switch the report to Videos and open a video’s Description tab (or click Fix description on a link). It shows the description with your planned fixes applied and every change highlighted.',
+        'Tweak it if you like, click Copy & open Studio, and paste it into the description there. Next video to fix moves you along. Link Checker never changes anything on YouTube itself.',
         'Click any link in the text to change or remove it. You choose whether that applies to every video with the link, just this channel’s videos, or only this one.',
         'Changed a line that’s in other videos too, like a sponsor or footer? Click Save edit, and Link Checker finds every other video with the same line and offers to change it there as well.',
       ],

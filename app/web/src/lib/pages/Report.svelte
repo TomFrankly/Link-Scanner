@@ -3,8 +3,9 @@
   // health chart, and the list of links (or videos) with filters, search and sort. All rows
   // come from `data.rows` in store.svelte.ts, already classified in the browser with this
   // workspace's rules, so filtering, searching and the counts here never call the server.
-  // Actions go through the store (addRule, removeRule, startScan) or open the fix dialog and
-  // the description drawer by setting `ui.fixLinkUrl` / `ui.drawerVideoId`.
+  // Actions go through the store (addRule, removeRule, startScan), open the fix dialog by
+  // setting `ui.fixLinkUrl`, or switch to the Videos view on a video's Description tab
+  // (`ui.openVideo`).
   import { MediaQuery, SvelteSet } from 'svelte/reactivity';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
@@ -20,7 +21,7 @@
   import PlannedFix from '$lib/components/PlannedFix.svelte';
   import FixMenuItems from '$lib/components/FixMenuItems.svelte';
   import FixLinkDialog from '$lib/components/FixLinkDialog.svelte';
-  import DescriptionDrawer from '$lib/components/DescriptionDrawer.svelte';
+  import { studioUrl } from '$lib/studio';
   import { FIXABLE } from '$shared/fixes';
   import { toast } from 'svelte-sonner';
   import BreakdownChart from '$lib/components/BreakdownChart.svelte';
@@ -83,7 +84,7 @@
   // URLs for "Recheck flagged links": everything not OK and not ignored, across all channels.
   const flagged = $derived(data.rows.filter((r) => isFlagged(r.cls.category)).map((r) => r.url));
   // How many problem links each video has, for the "+N other problem links" hint and the
-  // "Fix description" button. Same FIXABLE rule as the description drawer, so the counts match
+  // "Fix description" button. Same FIXABLE rule as the Description tab, so the counts match
   // what it lists: unverifiable links (probably fine, just blocked) and pending ones (not
   // checked yet) don't count.
   const countsAsProblem = (r: Row) => FIXABLE.includes(r.cls.category);
@@ -442,14 +443,14 @@
                           {#if problemsByVideo.get(v.id)}
                             <button
                               class="hover:bg-background inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-150"
-                              onclick={() => (ui.drawerVideoId = v.id)}
+                              onclick={() => ((view = 'videos'), (ui.openVideo = { id: v.id, tab: 'description' }))}
                             >
                               <FileText class="size-3" /> Fix description
                             </button>
                           {/if}
                           <a
                             class="hover:bg-background inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-150"
-                            href="https://studio.youtube.com/video/{v.id}/edit"
+                            href={studioUrl(v.id)}
                             target="_blank"
                             rel="noreferrer"
                           >
@@ -503,6 +504,3 @@
 {/if}
 
 <FixLinkDialog />
-<DescriptionDrawer />
-<!-- Keeps the end of the list reachable above the open drawer, which overlays the page. -->
-<div style="height: {ui.drawerHeight}px" aria-hidden="true"></div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Saves a hand edit from the Fix description drawer. The drawer works out what changed and
+  // Saves a hand edit from a video's Description tab. DescriptionPanel works out what changed and
   // passes it in as `changes`:
   // - `swaps`: links changed inside an otherwise unchanged line (shared/textEdits.ts
   //   splitLinkSwaps), or a link edited or removed from its chip in the editor (`to` is '' for a

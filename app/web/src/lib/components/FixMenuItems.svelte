@@ -3,7 +3,7 @@
   // (a problem link, or a working one you want to swap, like an old affiliate link). A planned
   // fix belongs to the link, so it applies in every video that uses it. Problem links also get
   // ways to mark them as fine.
-  // Used in the Report page's per-link "…" menu and in PlanFixButton (videos view and drawer).
+  // Used in the Report page's per-link "…" menu and in PlanFixButton (Videos view).
   // Fixes go through setFix and "mark it as fine" choices through addRule (store.svelte.ts);
   // both update the store, so every list showing this link updates too.
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';

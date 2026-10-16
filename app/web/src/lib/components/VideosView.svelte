@@ -1,9 +1,14 @@
 <script lang="ts">
   // The Report page's "Videos" view: the same filtered links, grouped by the video that uses
-  // them, most problems first. Each video expands to list its links with a "Plan fix" button,
-  // and "Fix description" opens the DescriptionDrawer via `ui.drawerVideoId`. Rows come in as
-  // props from Report.svelte; planned fixes are read from `data.fixes`.
-  import { SvelteSet } from 'svelte/reactivity';
+  // them, most problems first. Each video expands into two tabs: Links (its links, each with a
+  // "Plan fix" button) and Description (DescriptionPanel: the description with fixes applied,
+  // to copy into YouTube Studio). Other pages open a video here through `ui.openVideo`. Rows
+  // come in as props from Report.svelte; planned fixes are read from `data.fixes`.
+  import { tick } from 'svelte';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+  import LocateFixed from '@lucide/svelte/icons/locate-fixed';
+  import DescriptionPanel from '$lib/components/DescriptionPanel.svelte';
+  import { studioUrl } from '$lib/studio';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import { Button } from '$lib/components/ui/button';
@@ -83,6 +88,41 @@
   const shown = $derived(videos.slice(0, limit));
   const open = new SvelteSet<string>();
   const toggle = (id: string) => (open.has(id) ? open.delete(id) : open.add(id));
+  // Which tab each expanded video shows, and a link for its Description tab to scroll to.
+  const tabs = new SvelteMap<string, 'links' | 'description'>();
+  const focus = new SvelteMap<string, { url: string; n: number }>();
+  let focusCount = 0;
+
+  /** Expands a video on a tab (and, with `url`, scrolls its description to that link), and brings it into view. */
+  async function show(id: string, tab: 'links' | 'description', url?: string) {
+    const at = videos.findIndex((g) => g.video.id === id);
+    if (at === -1) return;
+    if (at >= limit) limit = Math.ceil((at + 1) / PAGE) * PAGE;
+    open.add(id);
+    tabs.set(id, tab);
+    if (url) focus.set(id, { url, n: ++focusCount });
+    await tick();
+    if (!url) document.getElementById(`video-${id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+  // Requests from elsewhere, e.g. the Links view's "Fix description" button.
+  $effect(() => {
+    const req = ui.openVideo;
+    if (!req) return;
+    ui.openVideo = null;
+    show(req.id, req.tab, req.url);
+  });
+
+  /** The next video with problem links after this one, in the list's order. */
+  const nextToFix = (id: string) => {
+    const at = videos.findIndex((g) => g.video.id === id);
+    return videos.slice(at + 1).find((g) => g.problems.length)?.video.id ?? null;
+  };
+  function goNext(id: string) {
+    const next = nextToFix(id);
+    if (!next) return;
+    open.delete(id);
+    show(next, 'description');
+  }
 
   const date = (s: string | null) => (s ? new Date(s).toLocaleDateString([], { dateStyle: 'medium' }) : null);
   // Where a link ends up, if that's really somewhere else (a trailing slash alone doesn't count).
@@ -97,7 +137,8 @@
     {@const v = g.video}
     {@const expanded = open.has(v.id)}
     {@const published = date(v.publishedAt)}
-    <div class="border-b last:border-b-0">
+    {@const tab = tabs.get(v.id) ?? 'links'}
+    <div id="video-{v.id}" class="scroll-mt-16 border-b last:border-b-0">
       <div class="hover:bg-muted/30 flex items-center gap-3 px-3 py-2 transition-colors">
         <button
           class="focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2"
@@ -132,7 +173,7 @@
         </button>
         <div class="hidden shrink-0 items-center gap-0.5 md:flex">
           <Button size="xs" variant="ghost" href="https://www.youtube.com/watch?v={v.id}" target="_blank" rel="noreferrer">Watch</Button>
-          <Button size="xs" variant="ghost" href="https://studio.youtube.com/video/{v.id}/edit" target="_blank" rel="noreferrer">
+          <Button size="xs" variant="ghost" href={studioUrl(v.id)} target="_blank" rel="noreferrer">
             Edit in Studio <ExternalLink />
           </Button>
         </div>
@@ -140,14 +181,30 @@
 
       {#if expanded}
         <div class="bg-muted/40 mx-3 mb-3 rounded-md border p-3">
-          <div class="text-muted-foreground mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <span><span class="text-foreground tabular-nums">{g.links.length}</span> {g.links.length === 1 ? 'link' : 'links'} shown</span>
+          <div class="text-muted-foreground mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+            <!-- Links | Description, styled like the report's own view switcher. -->
+            <div class="border-input bg-background inline-flex h-7 items-center rounded-md border p-0.5" role="tablist" aria-label="Show">
+              {#each [['links', 'Links'], ['description', 'Description']] as const as [k, label] (k)}
+                <button
+                  role="tab"
+                  aria-selected={tab === k}
+                  class="flex h-full items-center rounded-[4px] px-2 text-xs font-medium transition-colors duration-150 {tab === k
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'}"
+                  onclick={() => tabs.set(v.id, k)}>{label}</button
+                >
+              {/each}
+            </div>
+            <span><span class="text-foreground tabular-nums">{g.links.length}</span> {g.links.length === 1 ? 'link' : 'links'}</span>
             <span><span class="text-foreground tabular-nums">{g.problems.length}</span> to fix</span>
             <span class="flex gap-3 md:hidden">
               <a class="hover:text-foreground underline-offset-2 hover:underline" href="https://www.youtube.com/watch?v={v.id}" target="_blank" rel="noreferrer">Watch</a>
-              <a class="hover:text-foreground underline-offset-2 hover:underline" href="https://studio.youtube.com/video/{v.id}/edit" target="_blank" rel="noreferrer">Edit in Studio</a>
+              <a class="hover:text-foreground underline-offset-2 hover:underline" href={studioUrl(v.id)} target="_blank" rel="noreferrer">Edit in Studio</a>
             </span>
           </div>
+          {#if tab === 'description'}
+            <DescriptionPanel video={v} focus={focus.get(v.id) ?? null} onnext={nextToFix(v.id) ? () => goNext(v.id) : null} />
+          {:else}
           <ul class="divide-y rounded-md border bg-background">
             {#each g.links as r (r.url)}
               {@const final = moved(r)}
@@ -160,6 +217,13 @@
                     {#if r.cls.detail}<div class="text-muted-foreground">{r.cls.detail}</div>{/if}
                     <PlannedFix url={r.url} />
                   </div>
+                  <button
+                    type="button"
+                    class="text-muted-foreground hover:text-foreground hover:bg-muted shrink-0 rounded p-1 transition-colors duration-150"
+                    aria-label="Show in description"
+                    title="Show in description"
+                    onclick={() => show(v.id, 'description', r.url)}><LocateFixed class="size-3.5" /></button
+                  >
                   <PlanFixButton row={r} />
                 </div>
               </li>
@@ -170,8 +234,9 @@
               <span class="text-muted-foreground text-xs">
                 {g.problems.filter((p) => data.fixes.for(p.url, g.video.channelId)).length} of {g.problems.length} problem links have a planned fix
               </span>
-              <Button size="sm" onclick={() => (ui.drawerVideoId = v.id)}><FileText /> Fix description</Button>
+              <Button size="sm" onclick={() => tabs.set(v.id, 'description')}><FileText /> Fix description</Button>
             </div>
+          {/if}
           {/if}
         </div>
       {/if}

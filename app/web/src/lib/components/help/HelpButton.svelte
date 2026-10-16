@@ -10,7 +10,6 @@
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
   import { brand } from '$lib/brand';
-  import { ui } from '$lib/store.svelte';
   import Tutorial from './Tutorial.svelte';
   import HowItWorks from './HowItWorks.svelte';
   import GitHubMark from './GitHubMark.svelte';
@@ -27,13 +26,12 @@
   const TITLES: Record<Screen, string> = { home: 'Help', tour: 'Take the tour', how: 'How it works' };
 </script>
 
-<!-- Sits above the description drawer when it's open, so it never covers the editor. -->
 <button
   type="button"
   aria-label="Help"
   title="Help"
   class="bg-background text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring/50 fixed right-4 z-30 flex size-10 items-center justify-center rounded-full border shadow-md transition-colors duration-150 outline-none focus-visible:ring-3 sm:right-6"
-  style="bottom: {ui.drawerVideoId ? ui.drawerHeight + 16 : 16}px"
+  style="bottom: 16px"
   onclick={() => (open = true)}
 >
   <CircleHelp class="size-5" />

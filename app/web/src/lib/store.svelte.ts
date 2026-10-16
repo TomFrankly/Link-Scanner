@@ -1,7 +1,7 @@
 // App state, shared by every screen. Three exports hold it:
 // - `app`: what the server sent (signed-in user, current workspace, its report) and the route.
 // - `data`: rows derived from the report, classified with this workspace's rules.
-// - `ui`: which dialog or drawer is open.
+// - `ui`: which dialog is open, and requests to open a video in the Videos view.
 // The functions below are the only places that change server data; they call the Worker
 // through api.ts and then patch `app.report` so the screens update without a full reload.
 //
@@ -35,15 +35,14 @@ export const app = $state({
 });
 
 /**
- * Which link's fix dialog and which video's description drawer are open. `fixLinkChannel` is
- * the scope the fix dialog opens on ('' = every channel). `drawerHeight` is published by the
- * drawer so the report and the Help button can stay clear of it.
+ * Which link's fix dialog is open, and on which scope ('' = every channel). `openVideo` asks
+ * the report's Videos view to expand a video on a tab (and, with `url`, scroll its description
+ * to that link); the Videos view clears it once handled.
  */
 export const ui = $state({
   fixLinkUrl: null as string | null,
   fixLinkChannel: '',
-  drawerVideoId: null as string | null,
-  drawerHeight: 0,
+  openVideo: null as { id: string; tab: 'links' | 'description'; url?: string } | null,
 });
 
 window.addEventListener('hashchange', () => (app.route = routeFromHash()));
