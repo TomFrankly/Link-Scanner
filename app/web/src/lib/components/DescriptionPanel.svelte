@@ -263,10 +263,10 @@
   const preview = (find: string, replace: string) => replace.split('\n').find((l) => l.trim() && !find.split('\n').includes(l)) ?? `Deleted: ${find.split('\n').find((l) => l.trim())}`;
 
   const MODES = $derived([
-    // [mode, label, short label for phones]
-    ['apply', 'Apply planned fixes', 'Planned fixes'],
-    ['remove', 'Remove all problem links', 'Remove all'],
-    ...(hasRedirects ? [['redirects', 'Update all redirects', 'Redirects']] : []),
+    // [mode, short label, full label (its tooltip)]
+    ['apply', 'Planned', 'Apply planned fixes'],
+    ['remove', 'Remove all', 'Remove all problem links'],
+    ...(hasRedirects ? [['redirects', 'Redirects', 'Update all redirects']] : []),
     ['original', 'Original', 'Original'],
   ] as [typeof mode, string, string][]);
 </script>
@@ -312,34 +312,41 @@
     {/if}
   </aside>
 
-  <div class="min-w-0 space-y-2">
+  <!-- A container, so the buttons' labels follow this column's width, not the window's. -->
+  <div class="@container min-w-0 space-y-2">
     <div class="flex flex-wrap items-center gap-2">
-      <div class="bg-muted inline-flex flex-wrap rounded-md p-0.5" role="tablist" aria-label="What to change">
-        {#each MODES as [k, label, short] (k)}
+      <!-- Same look as the Links | Description switch. Short labels (the full ones are tooltips)
+           keep the toolbar on one line. -->
+      <div class="border-input bg-background inline-flex h-7 shrink-0 items-center rounded-md border p-0.5" role="tablist" aria-label="What to change">
+        {#each MODES as [k, label, full] (k)}
           <button
             role="tab"
             aria-selected={mode === k}
-            class="rounded-[5px] px-2 py-1 text-xs font-medium transition-colors duration-150 {mode === k
-              ? 'bg-background text-foreground shadow-xs'
+            title={full}
+            class="flex h-full items-center rounded-[4px] px-2 text-xs font-medium whitespace-nowrap transition-colors duration-150 {mode === k
+              ? 'bg-muted text-foreground'
               : 'text-muted-foreground hover:text-foreground'}"
-            onclick={() => ((mode = k), (edited = false))}><span class="sm:hidden">{short}</span><span class="hidden sm:inline">{label}</span></button
+            onclick={() => ((mode = k), (edited = false))}>{label}</button
           >
         {/each}
       </div>
-      <span class="text-muted-foreground text-xs tabular-nums">
+      <span class="text-muted-foreground min-w-0 flex-[1_1_0] truncate text-xs tabular-nums">
         {#if generated && mode !== 'original'}{generated.changed} change{generated.changed === 1 ? '' : 's'}{/if}
         {#if edited} · edited by hand{/if}
       </span>
-      <div class="ml-auto flex flex-wrap gap-1">
+      <div class="ml-auto flex shrink-0 gap-1">
         {#if edited}
-          <Button size="sm" variant="ghost" onclick={reset}><RotateCcw /> {stale ? 'Reapply fixes' : 'Undo my edits'}</Button>
+          <!-- Undo and Save are icon-only, so the toolbar stays on one line while editing. -->
+          <Button size="icon-sm" variant="ghost" onclick={reset} aria-label={stale ? 'Reapply fixes' : 'Undo my edits'} title={stale ? 'Reapply fixes' : 'Undo my edits'}><RotateCcw /></Button>
         {/if}
         {#if canSave}
-          <Button size="sm" variant="outline" onclick={startSave} title="Save your edit, here and in other videos with the same lines"><Save /> Save edit</Button>
+          <Button size="icon-sm" variant="outline" onclick={startSave} aria-label="Save edit" title="Save edit: here and in other videos with the same lines"><Save /></Button>
         {/if}
-        <Button size="sm" variant="outline" onclick={() => copy()} disabled={description === null}><Copy /> Copy</Button>
+        <Button size="sm" variant="outline" onclick={() => copy()} disabled={description === null} title="Copy"
+          ><Copy /><span class="hidden @3xl:inline">Copy</span></Button
+        >
         <Button size="sm" onclick={() => copy(true)} disabled={description === null} title="Copy the description and open this video in YouTube Studio">
-          <Copy /> Copy & open Studio <ExternalLink />
+          <Copy /> Copy & open<span class="hidden @3xl:inline">Studio</span> <ExternalLink />
         </Button>
         {#if !hasStudioTab()}
           <Button size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" title="Reuse one Studio tab (optional extension)" onclick={() => (ui.studioTab = true)}>

@@ -127,7 +127,7 @@
     <Card.Title>Saved text edits</Card.Title>
     <Card.Description>
       Hand edits saved from the Fix description panel. Each replaces whole lines wherever they appear in the videos it covers, before planned link fixes
-      run. Edit a description and click Save edit to add one.
+      run. Edit a description and click its save icon to add one.
     </Card.Description>
   </Card.Header>
   <Card.Content>
