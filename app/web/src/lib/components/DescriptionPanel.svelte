@@ -39,7 +39,7 @@
   import { Skeleton } from '$lib/components/ui/skeleton';
   import { api } from '$lib/api';
   import Resizer from './Resizer.svelte';
-  import { app, data, layout, removeTextEdit, setFix, ui } from '$lib/store.svelte';
+  import { app, data, layout, removeTextEdit, openHelp, setFix, ui } from '$lib/store.svelte';
   import { hasStudioTab, openStudio } from '$lib/studio';
   import Hint from './Hint.svelte';
   import { applyFixes, FIXABLE, reasonFor, REDIRECTS, removeLinks, updateRedirects, urlsIn, type FixResult, type Problem } from '$shared/fixes';
@@ -415,7 +415,7 @@
         </Hint>
         {#if !hasStudioTab()}
           <Hint text="Open Studio links in one tab beside the app" side="bottom">
-            {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" onclick={() => (ui.studioTab = true)}>
+            {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" onclick={() => openHelp('studio')}>
               <AppWindow />
             </Button>{/snippet}
           </Hint>

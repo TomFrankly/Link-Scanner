@@ -146,7 +146,7 @@
       </Dialog.Description>
     </Dialog.Header>
 
-    <div class="-mx-6 min-h-0 flex-1 space-y-4 overflow-y-auto px-6">
+    <div class="-mx-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-4">
       {#each swaps as s, i (s.from)}
         {@const n = videosWith(s.from).length}
         {@const nHere = inChannel(s.from)}

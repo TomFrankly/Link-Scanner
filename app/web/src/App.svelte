@@ -10,7 +10,7 @@
   import { Toaster } from '$lib/components/ui/sonner';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import Sidebar from '$lib/components/Sidebar.svelte';
-  import HelpButton from '$lib/components/help/HelpButton.svelte';
+  import HelpDialog from '$lib/components/help/HelpDialog.svelte';
   import ScanBanner from '$lib/components/ScanBanner.svelte';
   import NoAccess from '$lib/pages/NoAccess.svelte';
   import Report from '$lib/pages/Report.svelte';
@@ -60,6 +60,6 @@
       {/if}
     </div>
   </div>
-  <HelpButton />
+  <HelpDialog />
 {/if}
 </Tooltip.Provider>

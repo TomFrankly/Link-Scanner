@@ -35,8 +35,7 @@ export const app = $state({
 });
 
 /**
- * Which link's fix dialog is open, and on which scope ('' = every channel). `studioTab` opens
- * the Studio tab extension dialog. `openVideo` asks
+ * Which link's fix dialog is open, and on which scope ('' = every channel). `openVideo` asks
  * the report to open a video in its Videos view on a tab (and, with `url`, scroll its description
  * to that link); the report clears it once handled.
  */
@@ -44,11 +43,20 @@ export const ui = $state({
   fixLinkUrl: null as string | null,
   fixLinkChannel: '',
   openVideo: null as { id: string; tab: 'links' | 'description'; url?: string } | null,
-  /** Whether the Studio tab extension dialog (help/StudioTabDialog.svelte) is open. */
-  studioTab: false,
-  /** Whether the Help dialog (help/HelpButton.svelte) is open; the sidebar's Help item opens it. */
+  /** Whether the Help dialog (help/HelpDialog.svelte) is open; the sidebar's Help item opens it. */
   help: false,
+  /** The Help page to show; null shows the page list (the start screen on phones). */
+  helpPage: null as HelpPage | null,
 });
+
+/** The pages of the Help dialog (help/HelpDialog.svelte). */
+export type HelpPage = 'tour' | 'scan' | 'runs' | 'privacy' | 'verify' | 'studio';
+
+/** Opens Help on one page, e.g. the Studio tab page from the button beside "Copy & open Studio". */
+export function openHelp(page: HelpPage) {
+  ui.helpPage = page;
+  ui.help = true;
+}
 
 /** A value kept in localStorage (per browser), e.g. a pane width. Falls back quietly when storage is blocked. */
 export function stored<T>(key: string, fallback: T): { value: T } {

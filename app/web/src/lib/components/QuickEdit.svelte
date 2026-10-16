@@ -40,7 +40,7 @@
 
   let open = $state(false);
   let value = $state('');
-  let input = $state<HTMLInputElement>();
+  let input = $state<HTMLTextAreaElement>();
   let box = $state<HTMLDivElement>();
   let scope = $state<'all' | 'channel' | 'here'>('all');
   let saving = $state(false);
@@ -129,13 +129,21 @@
       </div>
       <label class="block space-y-1">
         <span class="text-muted-foreground text-xs">With</span>
-        <input
+        <!-- Wraps and grows with its text (up to about 8 lines), so a long pasted link is easy to read. Enter saves; Shift+Enter adds a line. -->
+        <textarea
           bind:this={input}
           bind:value
+          rows="1"
           spellcheck="false"
-          class="border-input focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-8 w-full rounded-md border bg-transparent px-2.5 font-mono text-xs outline-none focus-visible:ring-3"
+          class="border-input focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 block max-h-40 min-h-8 w-full resize-none rounded-md border bg-transparent px-2.5 py-1.5 font-mono text-xs break-all outline-none [field-sizing:content] focus-visible:ring-3"
           placeholder="Leave empty to delete it"
-        />
+          onkeydown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+        ></textarea>
       </label>
 
       {#if !inSource}

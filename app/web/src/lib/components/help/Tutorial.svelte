@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The guided tour in the Help dialog: one step at a time, with Back / Next.
+  // The guided tour, the first page in Help: one step at a time, with Back / Next.
   // Steps that point at a page offer a button that closes the dialog and goes there.
   import type { Category } from '$shared/core';
   import { Button } from '$lib/components/ui/button';
@@ -101,7 +101,7 @@
 </script>
 
 <div class="flex min-h-full flex-col">
-  <div class="flex-1 p-4">
+  <div class="mx-auto w-full max-w-2xl flex-1 px-4 py-6 md:px-8">
     {#if step.video}
       {@const clip = `/tour/${step.video}${mode.current === 'light' ? '-light' : ''}`}
       <!-- Muted, looping clip like a GIF, matching the light or dark theme. With reduced motion it waits for a click to play. -->
@@ -143,20 +143,22 @@
   </div>
 
   <!-- Progress dots double as shortcuts to any step. -->
-  <div class="bg-popover sticky bottom-0 flex items-center gap-3 border-t px-4 py-3">
-    <div class="flex flex-1 gap-1.5" role="tablist" aria-label="Tour steps">
-      {#each STEPS as s, i (s.title)}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={i === index}
-          aria-label="Step {i + 1}: {s.title}"
-          class="h-1.5 rounded-full transition-all duration-200 {i === index ? 'bg-foreground w-5' : 'bg-border hover:bg-muted-foreground/50 w-1.5'}"
-          onclick={() => (index = i)}
-        ></button>
-      {/each}
+  <div class="bg-popover sticky bottom-0 border-t">
+    <div class="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3 md:px-8">
+      <div class="flex flex-1 gap-1.5" role="tablist" aria-label="Tour steps">
+        {#each STEPS as s, i (s.title)}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={i === index}
+            aria-label="Step {i + 1}: {s.title}"
+            class="h-1.5 rounded-full transition-all duration-200 {i === index ? 'bg-foreground w-5' : 'bg-border hover:bg-muted-foreground/50 w-1.5'}"
+            onclick={() => (index = i)}
+          ></button>
+        {/each}
+      </div>
+      <Button size="sm" variant="ghost" disabled={index === 0} onclick={() => index--}>Back</Button>
+      <Button size="sm" onclick={() => (last ? onDone() : index++)}>{last ? 'Finish' : 'Next'}</Button>
     </div>
-    <Button size="sm" variant="ghost" disabled={index === 0} onclick={() => index--}>Back</Button>
-    <Button size="sm" onclick={() => (last ? onDone() : index++)}>{last ? 'Finish' : 'Next'}</Button>
   </div>
 </div>
