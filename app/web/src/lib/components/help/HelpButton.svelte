@@ -1,8 +1,7 @@
 <script lang="ts">
-  // The floating "?" button in the bottom-right corner and the Help dialog it opens.
+  // The Help dialog, opened by the sidebar's Help item (`ui.help`).
   // The dialog has three screens: a menu (home), a step-by-step tour, and a plain-language
   // explanation of how the tool works. Each sub-screen has a back button to the menu.
-  import CircleHelp from '@lucide/svelte/icons/circle-question-mark';
   import GraduationCap from '@lucide/svelte/icons/graduation-cap';
   import Workflow from '@lucide/svelte/icons/workflow';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -18,29 +17,17 @@
   import GitHubMark from './GitHubMark.svelte';
 
   type Screen = 'home' | 'tour' | 'how';
-  let open = $state(false);
   let screen = $state<Screen>('home');
 
   // Always start from the menu when the dialog is reopened.
   $effect(() => {
-    if (open) screen = 'home';
+    if (ui.help) screen = 'home';
   });
 
   const TITLES: Record<Screen, string> = { home: 'Help', tour: 'Take the tour', how: 'How it works' };
 </script>
 
-<button
-  type="button"
-  aria-label="Help"
-  title="Help"
-  class="bg-background text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring/50 fixed right-4 z-30 flex size-10 items-center justify-center rounded-full border shadow-md transition-colors duration-150 outline-none focus-visible:ring-3 sm:right-6"
-  style="bottom: 16px"
-  onclick={() => (open = true)}
->
-  <CircleHelp class="size-5" />
-</button>
-
-<Dialog.Root bind:open>
+<Dialog.Root bind:open={ui.help}>
   <!-- The tour and explainer get a fixed height, so the dialog doesn't jump around between steps. -->
   <Dialog.Content
     class="flex max-h-[min(44rem,calc(100dvh-2rem))] flex-col gap-0 p-0 sm:max-w-xl {screen === 'home' ? '' : 'h-[min(44rem,calc(100dvh-2rem))]'}"
@@ -77,7 +64,7 @@
             <button
               type="button"
               class="hover:bg-muted/60 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150"
-              onclick={() => ((open = false), (ui.studioTab = true))}
+              onclick={() => ((ui.help = false), (ui.studioTab = true))}
             >
               <span class="bg-muted flex size-9 shrink-0 items-center justify-center rounded-md"><AppWindow class="size-4" /></span>
               <span class="min-w-0 flex-1">
@@ -102,7 +89,7 @@
           </div>
         </div>
       {:else if screen === 'tour'}
-        <Tutorial onDone={() => (screen = 'home')} onNavigate={() => (open = false)} />
+        <Tutorial onDone={() => (screen = 'home')} onNavigate={() => (ui.help = false)} />
       {:else}
         <HowItWorks />
       {/if}

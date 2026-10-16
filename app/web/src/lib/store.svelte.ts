@@ -37,8 +37,8 @@ export const app = $state({
 /**
  * Which link's fix dialog is open, and on which scope ('' = every channel). `studioTab` opens
  * the Studio tab extension dialog. `openVideo` asks
- * the report's Videos view to expand a video on a tab (and, with `url`, scroll its description
- * to that link); the Videos view clears it once handled.
+ * the report to open a video in its Videos view on a tab (and, with `url`, scroll its description
+ * to that link); the report clears it once handled.
  */
 export const ui = $state({
   fixLinkUrl: null as string | null,
@@ -46,7 +46,39 @@ export const ui = $state({
   openVideo: null as { id: string; tab: 'links' | 'description'; url?: string } | null,
   /** Whether the Studio tab extension dialog (help/StudioTabDialog.svelte) is open. */
   studioTab: false,
+  /** Whether the Help dialog (help/HelpButton.svelte) is open; the sidebar's Help item opens it. */
+  help: false,
 });
+
+/** A value kept in localStorage (per browser), e.g. a pane width. Falls back quietly when storage is blocked. */
+export function stored<T>(key: string, fallback: T): { value: T } {
+  let initial = fallback;
+  try {
+    const raw = localStorage.getItem(`lc:${key}`);
+    if (raw !== null) initial = JSON.parse(raw) as T;
+  } catch {}
+  const box = $state({ value: initial });
+  $effect.root(() => {
+    $effect(() => {
+      const v = JSON.stringify(box.value);
+      try {
+        localStorage.setItem(`lc:${key}`, v);
+      } catch {}
+    });
+  });
+  return box;
+}
+
+/**
+ * The app layout the user has set, remembered per browser: the sidebar ('auto' is a rail in
+ * narrow windows and full width otherwise), and the widths (px) of the report's list pane and of
+ * the links list beside a description. Widths are clamped to fit wherever they're used.
+ */
+export const layout = {
+  sidebar: stored<'auto' | 'open' | 'rail'>('sidebar', 'auto'),
+  listWidth: stored('listWidth', 340),
+  linksWidth: stored('linksWidth', 256),
+};
 
 window.addEventListener('hashchange', () => (app.route = routeFromHash()));
 /** Navigates to a page; the hashchange listener above updates `app.route`. */

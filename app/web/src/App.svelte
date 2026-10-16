@@ -1,13 +1,15 @@
 <script lang="ts">
-  // The app shell: top bar, scan banner, the current page and the Help button. On mount it
-  // calls boot() (store.svelte.ts), which loads the signed-in user and their workspace's
-  // report; pages read everything from the `app` store, so this file only picks which to show.
+  // The app shell: one window-high screen that never scrolls as a whole. The sidebar sits on the
+  // left; the scan banner and the current page fill the rest. The Report page splits itself into
+  // panes that scroll on their own; the other pages scroll inside their own area. On mount it
+  // calls boot() (store.svelte.ts), which loads the signed-in user and their workspace's report;
+  // pages read everything from the `app` store, so this file only picks which to show.
   // The admin page works without a workspace; every other page needs one and its report.
   import { onMount } from 'svelte';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster } from '$lib/components/ui/sonner';
   import * as Tooltip from '$lib/components/ui/tooltip';
-  import TopBar from '$lib/components/TopBar.svelte';
+  import Sidebar from '$lib/components/Sidebar.svelte';
   import HelpButton from '$lib/components/help/HelpButton.svelte';
   import ScanBanner from '$lib/components/ScanBanner.svelte';
   import NoAccess from '$lib/pages/NoAccess.svelte';
@@ -35,27 +37,29 @@
 {:else if !app.me}
   <div class="text-muted-foreground py-24 text-center text-sm">Loading…</div>
 {:else}
-  <TopBar />
-  {#if app.route === 'admin' && app.me.isAdmin}
-    <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6"><Admin /></main>
-  {:else if !hasWorkspace}
-    <NoAccess />
-  {:else}
-    <ScanBanner />
-    <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      {#if !app.report}
-        <div class="text-muted-foreground py-24 text-center text-sm">Loading report…</div>
-      {:else if app.route === 'exceptions'}
-        <Exceptions />
-      {:else if app.route === 'channels'}
-        <Channels />
-      {:else if app.route === 'members'}
-        <Members />
+  <div class="flex h-dvh overflow-hidden">
+    <Sidebar />
+    <div class="flex min-w-0 flex-1 flex-col">
+      {#if app.route === 'admin' && app.me.isAdmin}
+        <main class="min-h-0 flex-1 overflow-y-auto"><div class="mx-auto max-w-6xl px-4 py-6 sm:px-6"><Admin /></div></main>
+      {:else if !hasWorkspace}
+        <main class="min-h-0 flex-1 overflow-y-auto"><NoAccess /></main>
       {:else}
-        <Report />
+        <ScanBanner />
+        {#if !app.report}
+          <div class="text-muted-foreground py-24 text-center text-sm">Loading report…</div>
+        {:else if app.route === 'exceptions' || app.route === 'channels' || app.route === 'members'}
+          <main class="min-h-0 flex-1 overflow-y-auto">
+            <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+              {#if app.route === 'exceptions'}<Exceptions />{:else if app.route === 'channels'}<Channels />{:else}<Members />{/if}
+            </div>
+          </main>
+        {:else}
+          <main class="min-h-0 flex-1"><Report /></main>
+        {/if}
       {/if}
-    </main>
-  {/if}
+    </div>
+  </div>
   <HelpButton />
 {/if}
 </Tooltip.Provider>

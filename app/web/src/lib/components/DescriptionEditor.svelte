@@ -141,10 +141,10 @@
               },
             }),
             EditorView.theme({
-              // No fixed height: the editor grows with the text and the page scrolls.
-              '&': { fontSize: '0.75rem' },
+              // Fills its box and scrolls inside it, so the links list beside it stays put.
+              '&': { fontSize: '0.75rem', height: '100%' },
               '&.cm-focused': { outline: 'none' },
-              '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.625' },
+              '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.625', overflow: 'auto', overscrollBehavior: 'contain' },
               '.cm-content': { padding: '12px', minHeight: '6rem', caretColor: 'var(--foreground)' },
               '.cm-line': { padding: '0' },
               '.cm-link': {
@@ -183,4 +183,4 @@
   });
 </script>
 
-<div bind:this={host} class="text-foreground"></div>
+<div bind:this={host} class="text-foreground h-full"></div>

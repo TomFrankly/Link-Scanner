@@ -50,7 +50,7 @@
     e.preventDefault();
     try {
       await api(`/w/${app.wsId}`, { method: 'PATCH', body: { name } });
-      // Update both copies of the name: the report's and the top bar's workspace switcher.
+      // Update both copies of the name: the report's and the sidebar's workspace switcher.
       report.workspace.name = name;
       const workspace = app.me?.workspaces.find((x) => x.id === app.wsId);
       if (workspace) workspace.name = name;

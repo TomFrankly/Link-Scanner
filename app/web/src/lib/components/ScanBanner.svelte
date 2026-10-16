@@ -2,7 +2,7 @@
   // Live scan progress: step indicator, animated bar and counters, speed and time left,
   // and a ticker of the links checked most recently.
   //
-  // Sits under the top bar on every workspace page and shows only while `app.report.scan` is
+  // Sits above the page on every workspace page and shows only while `app.report.scan` is
   // fetching or checking. The scan runs on the server; this banner just polls its status
   // (see the polling effect below) and writes each reply into the store with applyScanState.
   import { fly } from 'svelte/transition';

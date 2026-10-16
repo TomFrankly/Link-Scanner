@@ -44,7 +44,7 @@
       title: 'Read the report',
       video: 'report',
       paragraphs: [
-        'The headline counts the links that need your attention. Each link gets one status. Hover a status anywhere in the app to see what it means.',
+        'The headline counts the links that need your attention. Pick a link in the list to see where it goes and every video that uses it; the up and down arrow keys move through the list. Each link gets one status. Hover a status anywhere in the app to see what it means.',
       ],
       badges: ['broken', 'parked', 'domain-changed', 'homepage', 'unverifiable', 'ok'],
     },
@@ -61,7 +61,7 @@
       title: 'Plan your fixes',
       video: 'fix',
       paragraphs: [
-        'Open the ⋯ menu on a link to plan a fix: remove the link, or give it a replacement.',
+        'Pick a link and click Plan fix (or open its ⋯ menu) to remove the link or give it a replacement.',
         'A plan belongs to the link, not one video, so it applies everywhere that link appears.',
       ],
     },
@@ -69,8 +69,8 @@
       title: 'Fix the descriptions',
       video: 'descriptions',
       paragraphs: [
-        'Switch the report to Videos and open a video’s Description tab (or click Fix description on a link). It shows the description with your planned fixes applied and every change highlighted.',
-        'Tweak it if you like, click Copy & open Studio, and paste it into the description there. Next video to fix moves you along. Link Checker never changes anything on YouTube itself.',
+        'Switch the list to Videos and pick a video (or click Fix description on a link). Its Description tab shows the description with your planned fixes applied and every change highlighted, with the video’s links beside it.',
+        'Tweak it if you like, click Copy & open Studio, and paste it into the description there. Next to fix moves you along. Link Checker never changes anything on YouTube itself. It works in half a screen, so YouTube Studio can sit beside it; drag the dividers to resize the panes.',
         'Click any link in the text to change or remove it. You choose whether that applies to every video with the link, just this channel’s videos, or only this one.',
         'Changed a line that’s in other videos too, like a sponsor or footer? Click the save icon above the editor, and Link Checker finds every other video with the same line and offers to change it there as well.',
       ],

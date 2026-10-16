@@ -5,8 +5,8 @@
 </script>
 
 <script lang="ts">
-  // The Description tab of a video in the report's Videos view: the video's links down the
-  // side (each with Plan fix and a locate button), and its description with fixes applied,
+  // The Description tab of the video open in the report's Videos view: the video's links down
+  // the side (each with Plan fix and a locate button), and its description with fixes applied,
   // ready to copy into YouTube Studio. The video's links come from
   // `data.rows`, their planned fixes from `data.fixes`, and the description itself is fetched
   // fresh from the API when the tab first opens.
@@ -16,7 +16,6 @@
   // user copies the result into YouTube Studio.
   import { toast } from 'svelte-sonner';
   import X from '@lucide/svelte/icons/x';
-  import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import Copy from '@lucide/svelte/icons/copy';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
   import Save from '@lucide/svelte/icons/save';
@@ -34,7 +33,8 @@
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
   import { api } from '$lib/api';
-  import { app, data, removeTextEdit, setFix, ui } from '$lib/store.svelte';
+  import Resizer from './Resizer.svelte';
+  import { app, data, layout, removeTextEdit, setFix, ui } from '$lib/store.svelte';
   import { hasStudioTab, openStudio } from '$lib/studio';
   import { applyFixes, FIXABLE, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
   import { applyTextEdits, editsFromHandEdit, splitLinkSwaps, type FoundEdit, type LinkSwap } from '$shared/textEdits';
@@ -43,15 +43,12 @@
     video,
     allLinks,
     focus = null,
-    onnext = null,
   }: {
     video: VideoRef;
     /** Every link in the video, listed beside the editor (problems first). */
     allLinks: Row[];
     /** A link to scroll to and flash once the text is ready; `n` changes on each request. */
     focus?: { url: string; n: number } | null;
-    /** Moves to the next video to fix; null hides the button. */
-    onnext?: (() => void) | null;
   } = $props();
 
   // ---- the video's links ----
@@ -262,6 +259,14 @@
   // A saved edit's first changed line, for the list under the editor.
   const preview = (find: string, replace: string) => replace.split('\n').find((l) => l.trim() && !find.split('\n').includes(l)) ?? `Deleted: ${find.split('\n').find((l) => l.trim())}`;
 
+  // ---- layout: links beside the editor when the panel is wide enough ----
+  const LINKS_MIN = 180;
+  const EDITOR_MIN = 320;
+  let width = $state(0);
+  const side = $derived(width >= LINKS_MIN + EDITOR_MIN + 100);
+  const linksMax = $derived(Math.max(LINKS_MIN, Math.min(480, width - EDITOR_MIN)));
+  const linksWidth = $derived(Math.min(Math.max(layout.linksWidth.value, LINKS_MIN), linksMax));
+
   const MODES = $derived([
     // [mode, short label, full label (its tooltip)]
     ['apply', 'Planned', 'Apply planned fixes'],
@@ -271,10 +276,15 @@
   ] as [typeof mode, string, string][]);
 </script>
 
-<!-- The video's links beside the editor (stacked above it on phones), then the editor. -->
-<div class="grid items-start gap-3 md:grid-cols-[17rem_minmax(0,1fr)]">
-  <aside class="bg-background max-h-56 overflow-y-auto rounded-md border md:sticky md:top-16 md:max-h-[calc(100dvh-5rem)]" aria-label="Links in this video">
-    <ul class="divide-y">
+<!-- The video's links beside the editor when there's room for both, above it when not. Each
+     scrolls on its own, so locating a link moves only the description. -->
+<div class="flex h-full min-h-0 {side ? 'flex-row' : 'flex-col'}" bind:clientWidth={width}>
+  <aside
+    class="min-h-0 shrink-0 overflow-y-auto overscroll-contain {side ? '' : 'max-h-[38%] border-b'}"
+    style={side ? `width: ${linksWidth}px` : undefined}
+    aria-label="Links in this video"
+  >
+    <ul class="divide-y border-b">
       {#each allLinks as r (r.url)}
         <li class="px-3 py-2">
           <div class="flex items-center justify-between gap-2">
@@ -296,8 +306,8 @@
       {/each}
     </ul>
     {#if savedHere.length}
-      <div class="text-muted-foreground border-t px-3 pt-2.5 pb-1 text-xs">Saved edits on this video</div>
-      <ul class="divide-y">
+      <div class="text-muted-foreground px-3 pt-2.5 pb-1 text-xs">Saved edits on this video</div>
+      <ul class="divide-y border-b">
         {#each savedHere as e (e.id)}
           <li class="flex items-start gap-2 px-3 py-2">
             <PencilLine class="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
@@ -311,10 +321,13 @@
       </ul>
     {/if}
   </aside>
+  {#if side}
+    <Resizer bind:size={layout.linksWidth.value} min={LINKS_MIN} max={linksMax} initial={256} label="Resize the links list" />
+  {/if}
 
   <!-- A container, so the buttons' labels follow this column's width, not the window's. -->
-  <div class="@container min-w-0 space-y-2">
-    <div class="flex flex-wrap items-center gap-2">
+  <div class="@container flex min-h-0 min-w-0 flex-1 flex-col">
+    <div class="flex flex-none flex-wrap items-center gap-2 border-b px-3 py-2">
       <!-- Same look as the Links | Description switch. Short labels (the full ones are tooltips)
            keep the toolbar on one line. -->
       <div class="border-input bg-background inline-flex h-7 shrink-0 items-center rounded-md border p-0.5" role="tablist" aria-label="What to change">
@@ -343,10 +356,10 @@
           <Button size="icon-sm" variant="outline" onclick={startSave} aria-label="Save edit" title="Save edit: here and in other videos with the same lines"><Save /></Button>
         {/if}
         <Button size="sm" variant="outline" onclick={() => copy()} disabled={description === null} title="Copy"
-          ><Copy /><span class="hidden @3xl:inline">Copy</span></Button
+          ><Copy /><span class="hidden @xl:inline">Copy</span></Button
         >
         <Button size="sm" onclick={() => copy(true)} disabled={description === null} title="Copy the description and open this video in YouTube Studio">
-          <Copy /> Copy & open<span class="hidden @3xl:inline">Studio</span> <ExternalLink />
+          <Copy /> Copy & open<span class="hidden @xl:inline">Studio</span> <ExternalLink />
         </Button>
         {#if !hasStudioTab()}
           <Button size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" title="Reuse one Studio tab (optional extension)" onclick={() => (ui.studioTab = true)}>
@@ -357,21 +370,15 @@
     </div>
 
     {#if loadError}
-      <div class="text-sm text-[#b42d2d] dark:text-[#f07070]">{loadError}</div>
+      <div class="p-3 text-sm text-[#b42d2d] dark:text-[#f07070]">{loadError}</div>
     {:else if description === null}
-      <div class="bg-background space-y-2 rounded-md border p-3">
+      <div class="space-y-2 p-3">
         <Skeleton class="h-3 w-3/4" /><Skeleton class="h-3 w-full" /><Skeleton class="h-3 w-5/6" /><Skeleton class="h-3 w-2/3" />
       </div>
     {:else}
-      <!-- Links show as chips: click one to change it. The editor grows with the text. -->
-      <div class="bg-background rounded-md border">
+      <!-- Links show as chips: click one to change it. The editor scrolls inside this box. -->
+      <div class="min-h-0 flex-1">
         <DescriptionEditor bind:this={editor} bind:ready={editorReady} bind:value={text} {needles} {tint} oninput={onInput} onlink={(l) => (popLink = l)} />
-      </div>
-    {/if}
-
-    {#if onnext}
-      <div class="flex justify-end pt-1">
-        <Button size="sm" variant="ghost" onclick={onnext}>Next video to fix <ArrowRight /></Button>
       </div>
     {/if}
   </div>

@@ -54,8 +54,10 @@
   }
 </script>
 
-<!-- It's placed where the link was on screen, so it closes when the page scrolls away. -->
-<svelte:window onpointerdown={outside} onscroll={onclose} onkeydown={(e) => e.key === 'Escape' && (e.stopPropagation(), onclose())} />
+<!-- It's placed where the link was on screen, so it closes when anything scrolls (the editor or
+     a pane; scroll events don't bubble, hence the capture listener). -->
+<svelte:window onpointerdown={outside} onkeydown={(e) => e.key === 'Escape' && (e.stopPropagation(), onclose())} />
+<svelte:document onscrollcapture={onclose} />
 
 <div
   bind:this={box}
