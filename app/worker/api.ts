@@ -1,28 +1,62 @@
-// JSON API. Every route needs a signed-in email; workspace routes also need membership.
+// JSON API for the web app. api.ts answers browser requests quickly; anything slow (fetching
+// videos, checking links) is handed to scan.ts through the queue.
+//
+// Every route needs a signed-in email (auth.ts); workspace routes also need membership.
+// Who can do what:
+//   admin   ADMIN_EMAIL. Sees the admin page (allowed owners, per-workspace limits) and can
+//           open any workspace with the owner's powers, even without being a member.
+//   owner   may own a workspace: the admin, an OWNER_DOMAINS email, or one on the
+//           allowed_owners list. Gets one workspace on first sign-in. Can rename it and
+//           invite or remove members. Losing owner permission means losing access to it.
+//   member  invited by an owner. Can view the report, run scans within the daily limits,
+//           add/remove channels, and edit rules and link fixes. Can't manage members.
+// Signing in through Access alone grants nothing: someone who is neither an owner nor
+// invited only sees an empty /api/me.
+//
+// Workspace scoping: workspaceFor checks membership once per request, and every query
+// after that includes `workspace_id = ?` (directly or via workspace_channels), so an id
+// from the URL or body can never reach another workspace's rows. The one shared table is
+// `links` (check results per URL), which is only read for URLs that are in the workspace.
+//
+// Cross-site requests: every mutating route is a POST with a JSON body, a PATCH or a DELETE.
+// A browser won't send any of those from another site without a CORS preflight, and this
+// API never answers one, so another site can't act with a signed-in user's cookie.
 import { cleanDomain } from '../shared/core.ts';
 import { acceptedKey, DEFAULT_ACCEPTED, DEFAULT_REDIRECTORS, type RuleType } from '../shared/rules.ts';
 import { currentEmail } from './auth.ts';
 import { HttpError, now, today, type Env } from './env.ts';
 import { createScan, estimates, latestScan, usageToday, type ScanKind, type WorkspaceRow } from './scan.ts';
-import { fetchDescription, QuotaError, resolveChannel } from './youtube.ts';
+import { DEFAULT_DAILY_UNITS, fetchDescription, QuotaError, resolveChannel } from './youtube.ts';
 
 const MAX_VIDEOS_PER_CHANNEL = 5000;
+// Loose on purpose: Access proves the address at sign-in, this only catches typos.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_BODY_CHARS = 512 * 1024;
+const MAX_WORKSPACE_NAME = 80;
+const MAX_RULE_NOTE = 500;
+const MAX_OWNER_NOTE = 300;
+const MAX_REPLACEMENT_URL = 2000;
+// Ceilings for limits the admin sets per workspace.
+const MAX_DAILY_FULL_SCANS = 100;
+const MAX_DAILY_RECHECKS = 500;
+const MAX_CHANNELS = 50;
 
 interface Me {
   email: string;
   isAdmin: boolean;
   canOwn: boolean;
 }
+/** The caller's role in one workspace. `admin` means the admin, visiting as a non-member. */
 type Role = 'owner' | 'member' | 'admin';
 
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 
+/** Parses a JSON request body. Only the shape is typed: every route validates the fields itself. */
 async function body<T>(req: Request): Promise<T> {
   // Requiring JSON keeps plain cross-site form posts from reaching mutating routes.
   if (!(req.headers.get('content-type') ?? '').includes('application/json')) throw new HttpError(415, 'Expected JSON');
   const text = await req.text();
-  if (text.length > 512 * 1024) throw new HttpError(413, 'Request too large');
+  if (text.length > MAX_BODY_CHARS) throw new HttpError(413, 'Request too large');
   try {
     return JSON.parse(text) as T;
   } catch {
@@ -32,6 +66,7 @@ async function body<T>(req: Request): Promise<T> {
 
 // ---------- identity and workspaces ----------
 
+/** Works out the caller's app-wide permissions from config and the allowed_owners table. */
 async function loadMe(env: Env, email: string): Promise<Me> {
   const isAdmin = email === env.ADMIN_EMAIL.toLowerCase();
   const domain = email.split('@')[1] ?? '';
@@ -41,7 +76,7 @@ async function loadMe(env: Env, email: string): Promise<Me> {
   return { email, isAdmin, canOwn };
 }
 
-/** Owners get their workspace on first sign-in. */
+/** Owners get their workspace on first sign-in. Runs on every request (1 read once it exists). */
 async function ensureOwnWorkspace(env: Env, me: Me) {
   if (!me.canOwn) return;
   const existing = await env.DB.prepare('SELECT id FROM workspaces WHERE owner_email = ?').bind(me.email).first();
@@ -64,6 +99,7 @@ async function ensureOwnWorkspace(env: Env, me: Me) {
   ]);
 }
 
+/** Workspaces the caller belongs to, for the workspace switcher. */
 async function myWorkspaces(env: Env, me: Me) {
   const rows = (
     await env.DB.prepare(
@@ -76,6 +112,12 @@ async function myWorkspaces(env: Env, me: Me) {
   return rows.filter((r) => r.role !== 'owner' || me.canOwn);
 }
 
+/**
+ * The access check for every /api/w/:id route: returns the workspace and the caller's role
+ * in it, or throws 404/403. A member row wins over admin status, so the admin who is also a
+ * plain member somewhere acts as a member there. An owner who lost owner permission falls
+ * through to the admin check, then 403.
+ */
 async function workspaceFor(env: Env, me: Me, id: string): Promise<{ ws: WorkspaceRow; role: Role }> {
   const ws = await env.DB.prepare('SELECT * FROM workspaces WHERE id = ?').bind(id).first<WorkspaceRow>();
   if (!ws) throw new HttpError(404, 'Workspace not found');
@@ -91,7 +133,13 @@ const canManageMembers = (role: Role) => role === 'owner' || role === 'admin';
 
 // ---------- workspace routes ----------
 
+/**
+ * Everything the report page needs in one response: channels, videos, links and their
+ * results, rules, fixes, estimates and scan state. Classification happens in the browser.
+ * Side effect: may spend YouTube units backfilling missing channel thumbnails.
+ */
 async function report(env: Env, ws: WorkspaceRow, role: Role) {
+  // Limits a videos query to this workspace's channels; ?1 is the workspace id.
   const inWs = 'JOIN workspace_channels wc ON wc.channel_id = v.channel_id WHERE wc.workspace_id = ?1';
   const [channels, videos, videoLinks, links, rules, fixes] = await env.DB.batch([
     env.DB.prepare(
@@ -113,10 +161,14 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
   const missing = chans.filter((c) => !c.thumbnail);
   if (missing.length) {
     const found = await Promise.allSettled(missing.map((c) => resolveChannel(env, c.id)));
-    const updates = found.flatMap((f, i) => (f.status === 'fulfilled' && f.value.thumbnail ? [{ c: missing[i]!, t: f.value.thumbnail }] : []));
+    const updates = found.flatMap((f, i) =>
+      f.status === 'fulfilled' && f.value.thumbnail ? [{ channel: missing[i]!, thumbnail: f.value.thumbnail }] : [],
+    );
     if (updates.length) {
-      await env.DB.batch(updates.map((u) => env.DB.prepare('UPDATE channels SET thumbnail = ? WHERE id = ?').bind(u.t, u.c.id)));
-      for (const u of updates) u.c.thumbnail = u.t;
+      await env.DB.batch(
+        updates.map((u) => env.DB.prepare('UPDATE channels SET thumbnail = ? WHERE id = ?').bind(u.thumbnail, u.channel.id)),
+      );
+      for (const u of updates) u.channel.thumbnail = u.thumbnail;
     }
   }
   return {
@@ -133,10 +185,14 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
   };
 }
 
+/** The workspace's saved per-link fix decisions (see shared/fixes.ts applyFixes). */
 const fixesQuery = (env: Env, wsId: string) =>
   env.DB.prepare('SELECT url, action, replacement, added_by AS addedBy, added_at AS addedAt FROM link_fixes WHERE workspace_id = ?1').bind(wsId);
 
-/** Saves (or with `clear`, forgets) what to do with one of the workspace's links. */
+/**
+ * Saves (or with `clear`, forgets) what to do with one of the workspace's links. The link
+ * must appear in one of the workspace's videos. A replacement must be one http(s) URL.
+ */
 async function setFix(
   env: Env,
   ws: WorkspaceRow,
@@ -159,7 +215,7 @@ async function setFix(
       replacement = typeof b.replacement === 'string' ? b.replacement.trim() : '';
       // No whitespace, so the link survives being pasted into a description as one URL.
       const ok = /^https?:\/\/\S+$/i.test(replacement) && URL.canParse(replacement);
-      if (!ok || replacement.length > 2000) throw new HttpError(400, 'Enter a full http(s) URL to replace it with');
+      if (!ok || replacement.length > MAX_REPLACEMENT_URL) throw new HttpError(400, 'Enter a full http(s) URL to replace it with');
     }
     await env.DB.prepare(
       `INSERT INTO link_fixes (workspace_id, url, action, replacement, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -172,6 +228,7 @@ async function setFix(
   return { fixes: (await fixesQuery(env, ws.id).all()).results };
 }
 
+/** The latest scan plus today's usage against the workspace's limits. */
 async function scanState(env: Env, ws: WorkspaceRow) {
   const [scan, used] = await Promise.all([latestScan(env, ws.id), usageToday(env, ws.id)]);
   return {
@@ -181,6 +238,11 @@ async function scanState(env: Env, ws: WorkspaceRow) {
   };
 }
 
+/**
+ * Adds a YouTube channel to the workspace (1 YouTube unit). Enforces the workspace's
+ * channel limit and MAX_VIDEOS_PER_CHANNEL. Channel rows are shared between workspaces;
+ * the workspace_channels row is what links one to this workspace.
+ */
 async function addChannel(env: Env, ws: WorkspaceRow, me: Me, input: string) {
   if (!input?.trim()) throw new HttpError(400, 'Enter a channel handle or URL');
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM workspace_channels WHERE workspace_id = ?').bind(ws.id).first<{ n: number }>();
@@ -205,6 +267,10 @@ async function addChannel(env: Env, ws: WorkspaceRow, me: Me, input: string) {
   return { id: c.id, title: c.title };
 }
 
+/**
+ * Validates and saves a workspace rule (see shared/rules.ts). Returns `{ id }`, or the
+ * existing rule's id if an identical one is already saved.
+ */
 async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; value: string; value2?: string; note?: string }) {
   let value = '';
   let value2: string | null = null;
@@ -237,10 +303,11 @@ async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; 
   return env.DB.prepare(
     'INSERT INTO rules (workspace_id, type, value, value2, note, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
   )
-    .bind(ws.id, r.type, value, value2, r.note?.trim().slice(0, 500) || null, me.email, now())
+    .bind(ws.id, r.type, value, value2, r.note?.trim().slice(0, MAX_RULE_NOTE) || null, me.email, now())
     .first();
 }
 
+/** The workspace's member list; visible to every member. */
 async function members(env: Env, ws: WorkspaceRow) {
   return (
     await env.DB.prepare(
@@ -253,6 +320,7 @@ async function members(env: Env, ws: WorkspaceRow) {
 
 // ---------- admin ----------
 
+/** The admin page: allowed owners, every workspace with its limits and usage, and today's quota. */
 async function adminOverview(env: Env) {
   const [owners, workspaces, quota] = await env.DB.batch([
     env.DB.prepare('SELECT email, note, added_by AS addedBy, added_at AS addedAt FROM allowed_owners ORDER BY email'),
@@ -270,58 +338,65 @@ async function adminOverview(env: Env) {
     allowedOwners: owners!.results,
     ownerDomains: env.OWNER_DOMAINS.split(',').map((d) => d.trim()).filter(Boolean),
     workspaces: workspaces!.results,
-    quota: { usedToday: (quota!.results[0] as { units?: number } | undefined)?.units ?? 0, limit: Number(env.GLOBAL_DAILY_UNITS ?? 8000) },
+    quota: { usedToday: (quota!.results[0] as { units?: number } | undefined)?.units ?? 0, limit: Number(env.GLOBAL_DAILY_UNITS ?? DEFAULT_DAILY_UNITS) },
   };
 }
 
 // ---------- router ----------
 
+/**
+ * Routes one /api request. Order matters for security: authenticate (currentEmail), load
+ * app-wide permissions, then for /api/w/:id check membership (workspaceFor) before any
+ * route runs, and for /api/admin check isAdmin. HttpErrors become JSON with their status;
+ * anything else is logged and returned as a generic 500, so internals don't leak.
+ */
 export async function handleApi(req: Request, env: Env): Promise<Response> {
   try {
     const email = await currentEmail(req, env);
     const me = await loadMe(env, email);
     await ensureOwnWorkspace(env, me);
     const path = new URL(req.url).pathname.replace(/\/+$/, '');
-    const m = req.method;
-    const seg = path.split('/').slice(2).map(decodeURIComponent); // after /api
+    const method = req.method;
+    const seg = path.split('/').slice(2).map(decodeURIComponent); // path segments after /api
 
-    if (path === '/api/me' && m === 'GET') {
+    if (path === '/api/me' && method === 'GET') {
       return json({ email: me.email, isAdmin: me.isAdmin, canOwn: me.canOwn, workspaces: await myWorkspaces(env, me) });
     }
 
     if (seg[0] === 'w' && seg[1]) {
       const { ws, role } = await workspaceFor(env, me, seg[1]);
       const sub = seg[2];
-      if (!sub && m === 'GET') return json(await report(env, ws, role));
-      if (!sub && m === 'PATCH') {
+      if (!sub && method === 'GET') return json(await report(env, ws, role));
+      if (!sub && method === 'PATCH') {
         if (!canManageMembers(role)) throw new HttpError(403, 'Only the owner can rename the workspace');
         const b = await body<{ name?: string }>(req);
-        const name = b.name?.trim().slice(0, 80);
+        const name = b.name?.trim().slice(0, MAX_WORKSPACE_NAME);
         if (!name) throw new HttpError(400, 'Enter a name');
         await env.DB.prepare('UPDATE workspaces SET name = ? WHERE id = ?').bind(name, ws.id).run();
         return json({ ok: true });
       }
-      if (sub === 'scan' && m === 'GET') return json(await scanState(env, ws));
-      if (sub === 'scans' && m === 'POST') {
+      if (sub === 'scan' && method === 'GET') return json(await scanState(env, ws));
+      if (sub === 'scans' && method === 'POST') {
         const b = await body<{ kind: ScanKind; urls?: string[]; channels?: string[] }>(req);
         if (!['full', 'all', 'urls'].includes(b.kind)) throw new HttpError(400, 'Unknown scan type');
         const id = await createScan(env, ws, b.kind, me.email, { urls: b.urls, channels: b.kind === 'full' ? b.channels : undefined });
         return json({ id, ...(await scanState(env, ws)), estimates: await estimates(env, ws.id) });
       }
-      if (sub === 'channels' && m === 'POST') {
+      if (sub === 'channels' && method === 'POST') {
         const b = await body<{ input: string }>(req);
         return json(await addChannel(env, ws, me, b.input));
       }
-      if (sub === 'channels' && seg[3] && m === 'DELETE') {
+      if (sub === 'channels' && seg[3] && method === 'DELETE') {
         await env.DB.prepare('DELETE FROM workspace_channels WHERE workspace_id = ? AND channel_id = ?').bind(ws.id, seg[3]).run();
         return json({ ok: true });
       }
-      if (sub === 'videos' && seg[3] && seg[4] === 'description' && !seg[5] && m === 'GET') {
+      if (sub === 'videos' && seg[3] && seg[4] === 'description' && !seg[5] && method === 'GET') {
         const owned = await env.DB.prepare(
           'SELECT 1 FROM videos v JOIN workspace_channels wc ON wc.channel_id = v.channel_id WHERE wc.workspace_id = ? AND v.id = ?',
         )
           .bind(ws.id, seg[3])
           .first();
+        // Only videos of this workspace's channels, so the route can't be used to spend quota on anything else.
         if (!owned) throw new HttpError(404, 'Video not found in this workspace');
         try {
           return json({ description: await fetchDescription(env, seg[3]) });
@@ -330,14 +405,14 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
           throw e;
         }
       }
-      if (sub === 'fixes' && m === 'POST') return json(await setFix(env, ws, me, await body(req)));
-      if (sub === 'rules' && m === 'POST') return json(await addRule(env, ws, me, await body(req)));
-      if (sub === 'rules' && seg[3] && m === 'DELETE') {
+      if (sub === 'fixes' && method === 'POST') return json(await setFix(env, ws, me, await body(req)));
+      if (sub === 'rules' && method === 'POST') return json(await addRule(env, ws, me, await body(req)));
+      if (sub === 'rules' && seg[3] && method === 'DELETE') {
         await env.DB.prepare('DELETE FROM rules WHERE workspace_id = ? AND id = ?').bind(ws.id, Number(seg[3])).run();
         return json({ ok: true });
       }
-      if (sub === 'members' && m === 'GET') return json(await members(env, ws));
-      if (sub === 'members' && m === 'POST') {
+      if (sub === 'members' && method === 'GET') return json(await members(env, ws));
+      if (sub === 'members' && method === 'POST') {
         if (!canManageMembers(role)) throw new HttpError(403, 'Only the owner can invite people');
         const b = await body<{ email: string }>(req);
         const invite = b.email?.trim().toLowerCase();
@@ -349,7 +424,7 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
           .run();
         return json(await members(env, ws));
       }
-      if (sub === 'members' && seg[3] && m === 'DELETE') {
+      if (sub === 'members' && seg[3] && method === 'DELETE') {
         if (!canManageMembers(role)) throw new HttpError(403, 'Only the owner can remove people');
         await env.DB.prepare("DELETE FROM members WHERE workspace_id = ? AND email = ? AND role = 'member'").bind(ws.id, seg[3].toLowerCase()).run();
         return json(await members(env, ws));
@@ -359,28 +434,34 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
 
     if (seg[0] === 'admin') {
       if (!me.isAdmin) throw new HttpError(403, 'Admins only');
-      if (!seg[1] && m === 'GET') return json(await adminOverview(env));
-      if (seg[1] === 'owners' && m === 'POST') {
+      if (!seg[1] && method === 'GET') return json(await adminOverview(env));
+      if (seg[1] === 'owners' && method === 'POST') {
         const b = await body<{ email: string; note?: string }>(req);
         const e = b.email?.trim().toLowerCase();
         if (!e || !EMAIL_RE.test(e)) throw new HttpError(400, 'Enter a valid email');
         await env.DB.prepare('INSERT OR REPLACE INTO allowed_owners (email, note, added_by, added_at) VALUES (?, ?, ?, ?)')
-          .bind(e, b.note?.trim().slice(0, 300) || null, me.email, now())
+          .bind(e, b.note?.trim().slice(0, MAX_OWNER_NOTE) || null, me.email, now())
           .run();
         return json(await adminOverview(env));
       }
-      if (seg[1] === 'owners' && seg[2] && m === 'DELETE') {
+      if (seg[1] === 'owners' && seg[2] && method === 'DELETE') {
         await env.DB.prepare('DELETE FROM allowed_owners WHERE email = ?').bind(seg[2].toLowerCase()).run();
         return json(await adminOverview(env));
       }
-      if (seg[1] === 'workspaces' && seg[2] && m === 'PATCH') {
+      if (seg[1] === 'workspaces' && seg[2] && method === 'PATCH') {
         const b = await body<{ dailyFullScans?: number; dailyRechecks?: number; maxChannels?: number }>(req);
-        const n = (v: unknown, max: number) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= max ? (v as number) : null);
+        // A whole number from 0 to max, or null to keep the current value (via COALESCE).
+        const intOrKeep = (v: unknown, max: number) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= max ? (v as number) : null);
         await env.DB.prepare(
           `UPDATE workspaces SET daily_full_scans = COALESCE(?, daily_full_scans), daily_rechecks = COALESCE(?, daily_rechecks),
            max_channels = COALESCE(?, max_channels) WHERE id = ?`,
         )
-          .bind(n(b.dailyFullScans, 100), n(b.dailyRechecks, 500), n(b.maxChannels, 50), seg[2])
+          .bind(
+            intOrKeep(b.dailyFullScans, MAX_DAILY_FULL_SCANS),
+            intOrKeep(b.dailyRechecks, MAX_DAILY_RECHECKS),
+            intOrKeep(b.maxChannels, MAX_CHANNELS),
+            seg[2],
+          )
           .run();
         return json(await adminOverview(env));
       }

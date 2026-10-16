@@ -1,6 +1,8 @@
 <script lang="ts">
   // A short explanation on hover or keyboard focus. The trigger keeps its own element:
   // pass a snippet that spreads `props` onto it.
+  // A disabled button never fires hover or focus events, so to explain why one is disabled,
+  // spread `props` onto a focusable wrapper instead (see the Scan button on Channels.svelte).
   import type { Snippet } from 'svelte';
   import * as Tooltip from '$lib/components/ui/tooltip';
 

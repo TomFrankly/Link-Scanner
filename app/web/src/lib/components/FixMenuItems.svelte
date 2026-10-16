@@ -1,6 +1,9 @@
 <script lang="ts">
   // The choices for a problem link, used inside any dropdown menu. A planned fix belongs to
   // the link, so it applies in every video that uses it.
+  // Used in the Report page's per-link "…" menu and in PlanFixButton (videos view and drawer).
+  // Fixes go through setFix and "mark it as fine" choices through addRule (store.svelte.ts);
+  // both update the store, so every list showing this link updates too.
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { baseDomain, hostOf } from '$shared/core';
   import { FIXABLE, REDIRECTS } from '$shared/fixes';

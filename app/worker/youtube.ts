@@ -1,11 +1,26 @@
-// YouTube Data API v3 with the server's API key (public data only). Every call is metered
-// against a global daily ceiling so colleagues can't exhaust the key's quota.
+// YouTube Data API v3 client. It uses the server's API key, so it can only read public
+// data (public and unlisted videos, channel info). There is no OAuth and no write access:
+// this app can never change a video or description; fixes are pasted into Studio by hand.
+//
+// Every call is metered against a global daily ceiling (GLOBAL_DAILY_UNITS) in the `quota`
+// table, shared by all workspaces, so colleagues can't exhaust the key's quota. The calls
+// used here (channels.list, playlistItems.list, videos.list) cost 1 unit each.
 import { HttpError, today, type Env } from './env.ts';
+
+/** Ceiling when GLOBAL_DAILY_UNITS is unset: below YouTube's default 10,000/day, for headroom. */
+export const DEFAULT_DAILY_UNITS = 8000;
+/** The most videos playlistItems.list returns per page (and videos.list accepts per call). */
+const PAGE_SIZE = 50;
 
 export class QuotaError extends Error {}
 
+/**
+ * Records `units` against today's (UTC) total and throws QuotaError if that pushes it over
+ * the ceiling. The increment is one atomic upsert, so concurrent queue invocations can't
+ * both slip under the limit. Units are counted before the call, so failed calls count too.
+ */
 async function spendUnits(env: Env, units: number) {
-  const limit = Number(env.GLOBAL_DAILY_UNITS ?? 8000);
+  const limit = Number(env.GLOBAL_DAILY_UNITS ?? DEFAULT_DAILY_UNITS);
   const row = await env.DB.prepare(
     'INSERT INTO quota (day, units) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET units = units + excluded.units RETURNING units',
   )
@@ -14,6 +29,10 @@ async function spendUnits(env: Env, units: number) {
   if ((row?.units ?? 0) > limit) throw new QuotaError('The app reached its daily YouTube quota. Try again tomorrow (UTC).');
 }
 
+/**
+ * One GET to the API (1 quota unit, 1 D1 write, 1 subrequest). Errors become HttpError with
+ * YouTube's message; the key is only in the request URL and never in an error or log.
+ */
 async function yt<T>(env: Env, endpoint: string, params: Record<string, string>): Promise<T> {
   if (!env.YOUTUBE_API_KEY) throw new HttpError(500, 'YOUTUBE_API_KEY is not set');
   await spendUnits(env, 1);
@@ -23,8 +42,7 @@ async function yt<T>(env: Env, endpoint: string, params: Record<string, string>)
   const body = (await res.json()) as T & { error?: { message?: string; errors?: { reason?: string }[] } };
   if (!res.ok) {
     if (body.error?.errors?.some((e) => e.reason === 'quotaExceeded')) throw new QuotaError('YouTube API quota exceeded for today.');
-    const err = new HttpError(res.status === 404 ? 404 : 502, `YouTube API: ${body.error?.message ?? res.status}`);
-    throw err;
+    throw new HttpError(res.status === 404 ? 404 : 502, `YouTube API: ${body.error?.message ?? res.status}`);
   }
   return body;
 }
@@ -38,7 +56,10 @@ export interface ChannelInfo {
   thumbnail: string | null;
 }
 
-/** Accepts @handle, a channel ID, or a youtube.com URL (/@handle or /channel/UC…). */
+/**
+ * Looks up a channel (1 unit). Accepts @handle, a channel ID, or a youtube.com URL
+ * (/@handle or /channel/UC…). Throws a 404 HttpError if YouTube doesn't know it.
+ */
 export async function resolveChannel(env: Env, input: string): Promise<ChannelInfo> {
   let s = input.trim();
   try {
@@ -73,14 +94,18 @@ export interface VideoInfo {
   description: string;
 }
 
-/** One page (up to 50 videos) of a channel's uploads, with full descriptions. Costs 2 units. */
+/**
+ * One page (up to 50 videos) of a channel's uploads playlist, with full descriptions.
+ * Costs 2 units: playlistItems for the IDs, then videos for the snippets. A missing
+ * playlist (404) reads as an empty channel. `next` is the token for the following page.
+ */
 export async function fetchUploadsPage(env: Env, uploads: string, pageToken?: string) {
   let page: { items?: { contentDetails: { videoId: string } }[]; nextPageToken?: string };
   try {
     page = await yt(env, 'playlistItems', {
       part: 'contentDetails',
       playlistId: uploads,
-      maxResults: '50',
+      maxResults: String(PAGE_SIZE),
       fields: 'nextPageToken,items/contentDetails/videoId',
       ...(pageToken ? { pageToken } : {}),
     });

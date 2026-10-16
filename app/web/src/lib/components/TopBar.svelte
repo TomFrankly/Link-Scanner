@@ -1,4 +1,7 @@
 <script lang="ts">
+  // The sticky bar at the top of every page: logo, workspace switcher (only with more than
+  // one workspace), page links (a single menu on phones), and the account menu with the theme
+  // picker and sign-out. Reads the user, workspace and route from the `app` store.
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import LogOut from '@lucide/svelte/icons/log-out';
   import Check from '@lucide/svelte/icons/check';
@@ -13,6 +16,7 @@
 
   const me = $derived(app.me!);
   const current = $derived(me.workspaces.find((w) => w.id === app.wsId));
+  // Page links; without a workspace only Admin is left (for admins).
   const nav = $derived(
     [
       ['report', 'Report'],
@@ -126,6 +130,7 @@
             </div>
           </div>
           <DropdownMenu.Separator />
+          <!-- Cloudflare Access handles sign-in, so signing out goes through its logout URL. -->
           <DropdownMenu.Item onSelect={() => (location.href = '/cdn-cgi/access/logout')}>
             <LogOut /> Sign out
           </DropdownMenu.Item>

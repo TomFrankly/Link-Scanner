@@ -1,4 +1,6 @@
 <script lang="ts">
+  // The "Plan fix" / "Change fix" button beside a problem link in the videos view and the
+  // description drawer. It opens the same choices as the report's "…" menu (FixMenuItems).
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Pencil from '@lucide/svelte/icons/pencil';
   import { Button } from '$lib/components/ui/button';

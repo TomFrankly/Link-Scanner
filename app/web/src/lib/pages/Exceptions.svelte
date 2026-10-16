@@ -1,4 +1,8 @@
 <script lang="ts">
+  // Exceptions page (#/exceptions): this workspace's rules for which redirects are fine and
+  // which links to hide, plus the app defaults it can turn off. The rules live in
+  // `app.report.rules`; addRule/removeRule (store.svelte.ts) save them through the API and patch
+  // that list, and the report reclassifies in the browser at once, with no recheck.
   import X from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
@@ -7,7 +11,9 @@
   import { addRule, app, removeRule } from '$lib/store.svelte';
 
   const report = $derived(app.report!);
-  const own = (t: RuleType) => report.rules.filter((r) => r.type === t);
+  // The workspace's own rules of one type (the defaults are listed separately below).
+  const own = (type: RuleType) => report.rules.filter((r) => r.type === type);
+  // Turning a default off saves a `disabled` rule naming it; this finds that rule, if any.
   const disabledRule = (kind: string, key: string) => report.rules.find((r) => r.type === 'disabled' && r.value === kind && r.value2 === key);
 
   let accFrom = $state('');
@@ -18,21 +24,24 @@
   let ignored = $state('');
   let ignNote = $state('');
 
+  /** Saves one of the three forms; each form clears only when its rule saved. */
   async function add(type: RuleType) {
     if (type === 'accepted' && (await addRule('accepted', accFrom, accTo, accNote))) accFrom = accTo = accNote = '';
     if (type === 'redirector' && (await addRule('redirector', redirector, undefined, redNote))) redirector = redNote = '';
     if (type === 'ignored' && (await addRule('ignored', ignored, undefined, ignNote))) ignored = ignNote = '';
   }
-  const by = (r: RuleRow) => `${r.addedBy.split('@')[0]} · ${new Date(r.addedAt).toLocaleDateString()}`;
+  // "alex · 3/14/2026": who added a rule and when, by the email's name part.
+  const addedLine = (r: RuleRow) => `${r.addedBy.split('@')[0]} · ${new Date(r.addedAt).toLocaleDateString()}`;
 </script>
 
+<!-- A removable list of rules; `fmt` turns a rule into its display text. -->
 {#snippet list(rows: RuleRow[], fmt: (r: RuleRow) => string)}
   <div class="divide-y rounded-lg border">
     {#each rows as r (r.id)}
       <div class="flex items-start gap-2 px-3 py-2">
         <div class="min-w-0 flex-1">
           <div class="font-mono text-xs break-all">{fmt(r)}</div>
-          <div class="text-muted-foreground mt-0.5 text-xs">{r.note ? `${r.note} · ` : ''}{by(r)}</div>
+          <div class="text-muted-foreground mt-0.5 text-xs">{r.note ? `${r.note} · ` : ''}{addedLine(r)}</div>
         </div>
         <Button size="icon-xs" variant="ghost" aria-label="Remove" onclick={() => removeRule(r.id)}><X /></Button>
       </div>

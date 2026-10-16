@@ -1,8 +1,11 @@
+// Shapes of the JSON the Worker's /api returns, plus `Row`, the per-link record the report
+// screens work with (built in store.svelte.ts). Types shared with the Worker live in shared/.
 import type { Classified, LinkResult } from '$shared/core';
 import type { RuleRow } from '$shared/rules';
 
 export type Role = 'owner' | 'member' | 'admin';
 
+/** The signed-in user and the workspaces they can open (GET /api/me). */
 export interface Me {
   email: string;
   isAdmin: boolean;
@@ -10,9 +13,11 @@ export interface Me {
   workspaces: { id: string; name: string; role: 'owner' | 'member' }[];
 }
 
+/** One scan's progress row, as the server stores it. */
 export interface Scan {
   id: number;
   kind: 'full' | 'all' | 'urls';
+  /** A full scan fetches video descriptions first, then checks links; rechecks skip to checking. */
   status: 'fetching' | 'checking' | 'done' | 'failed';
   pending_fetch: number;
   total: number;
@@ -30,6 +35,7 @@ export interface Scan {
   recent: string | null;
 }
 
+/** Server-side numbers behind the Rescan menu's costs and the scan banner's time left. */
 export interface Estimates {
   links: number;
   staleDay: number;
@@ -42,6 +48,7 @@ export interface Estimates {
   secsPerPage: number;
 }
 
+/** The latest scan plus today's usage against the workspace's daily limits. */
 export interface ScanState {
   scan: Scan | null;
   limits: { fullScans: number; rechecks: number; maxChannels: number };
@@ -72,18 +79,26 @@ export interface LinkFix {
   addedAt: string;
 }
 
+/**
+ * Everything one workspace's screens need, loaded once from GET /api/w/:id. Videos and
+ * video-link pairs use one-letter keys to keep the payload small on big channels.
+ */
 export interface Report extends ScanState {
   workspace: { id: string; name: string; owner: string; role: Role };
   channels: Channel[];
+  /** t: title, c: channel id, p: published date */
   videos: { id: string; t: string; c: string; p: string | null }[];
+  /** v: video id, u: link URL found in that video's description */
   videoLinks: { v: string; u: string }[];
   links: ApiLink[];
   rules: RuleRow[];
   fixes: LinkFix[];
+  /** The app-wide default rules, listed on the Exceptions page so they can be turned off. */
   defaults: { accepted: [string, string][]; redirectors: string[] };
   estimates: Estimates;
 }
 
+/** A video, expanded from the report's compact form. */
 export interface VideoRef {
   id: string;
   title: string;
@@ -91,6 +106,7 @@ export interface VideoRef {
   publishedAt: string | null;
 }
 
+/** One unique link: its latest check, every video that uses it, and how this workspace's rules classify it. */
 export interface Row {
   url: string;
   host: string;

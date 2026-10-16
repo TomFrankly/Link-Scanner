@@ -1,19 +1,36 @@
+// Scans: the slow work. api.ts calls createScan, which records a row in `scans` and queues
+// messages; the queue handler in index.ts passes each message to handleJob here.
+//
 // Scans run as a chain of queue messages so each invocation stays inside Workers Free
 // limits (50 subrequests, 50 D1 queries, 10 ms CPU):
 //   full scan:  one `fetch` message per uploads page (50 videos), then `check` messages
 //   rechecks:   `check` messages only, a few links each, grouped by host
+// Bulk writes pass one JSON array to json_each instead of one parameter per row, because a
+// D1 query allows at most 100 bound parameters (and a batch counts toward the 50 queries).
+//
+// Link results in `links` are shared by every workspace (a URL is checked once, whoever
+// asked), but every read here is scoped through workspace_channels to one workspace.
+// The cron (sweepStalledScans) restarts scans whose messages were lost.
 import { checkUrl, extractUrls, hostOf, type LinkResult } from '../shared/core.ts';
 import { SKIP_DOMAINS } from '../shared/rules.ts';
 import { HttpError, now, today, type CheckItem, type Env, type Job } from './env.ts';
 import { BudgetExceeded, makeFetcher, SUBREQUEST_BUDGET } from './fetcher.ts';
 import { notifyScanEnded } from './notify.ts';
-import { fetchUploadsPage, QuotaError, resolveChannel } from './youtube.ts';
+import { DEFAULT_DAILY_UNITS, fetchUploadsPage, QuotaError, resolveChannel } from './youtube.ts';
 
+// Links per `check` message: with per-host delays and redirects, about what fits in one
+// invocation's subrequest budget and wall time.
 const ITEMS_PER_MESSAGE = 6;
+// Don't start a link with fewer subrequests left than a short redirect chain needs.
 const MIN_BUDGET_TO_START = 4;
+// Times a link may run out of budget before it's recorded as unverifiable.
 const MAX_TRIES = 3;
 const MAX_PAGES_PER_CHANNEL = 100; // 5,000 videos
+const MAX_URLS_PER_RECHECK = 5000;
 const STALE_SCAN_MS = 2 * 3600_000;
+// Queues accepts at most 100 messages per sendBatch call.
+const QUEUE_SEND_BATCH_MAX = 100;
+// A result newer than this is reused rather than rechecked, per scan kind.
 const FRESH = { full: 24 * 3600_000, all: 3600_000, urls: 5 * 60_000 };
 
 export type ScanKind = 'full' | 'all' | 'urls';
@@ -51,8 +68,10 @@ export interface WorkspaceRow {
   created_at: string;
 }
 
+/** ISO timestamp `ms` milliseconds ago, for comparing with stored timestamps. */
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
+/** Marks a running scan failed with a user-facing message, once, and notifies the admin. */
 async function fail(env: Env, scanId: number, message: string) {
   const r = await env.DB.prepare(
     "UPDATE scans SET status = 'failed', error = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status IN ('fetching', 'checking')",
@@ -72,6 +91,10 @@ async function finish(env: Env, scanId: number) {
   if (r.meta.changes) await notifyScanEnded(env, scanId);
 }
 
+/**
+ * The workspace's most recent scan, or null. Side effect: a running scan with no progress
+ * for STALE_SCAN_MS is marked failed here, so the UI never waits forever.
+ */
 export async function latestScan(env: Env, workspaceId: string): Promise<ScanRow | null> {
   const s = await env.DB.prepare('SELECT * FROM scans WHERE workspace_id = ? ORDER BY id DESC LIMIT 1')
     .bind(workspaceId)
@@ -83,6 +106,7 @@ export async function latestScan(env: Env, workspaceId: string): Promise<ScanRow
   return s;
 }
 
+/** How many full scans and rechecks this workspace started today (UTC), for its daily limits. */
 export async function usageToday(env: Env, workspaceId: string) {
   const r = await env.DB.prepare(
     "SELECT COALESCE(SUM(kind = 'full'), 0) AS full, COALESCE(SUM(kind != 'full'), 0) AS rechecks FROM scans WHERE workspace_id = ? AND created_at >= ?",
@@ -114,6 +138,10 @@ async function workspaceUrls(
   return (await stmt.all<{ url: string }>()).results.map((r) => r.url);
 }
 
+/**
+ * Moves a scan into the checking phase: stores the URL list (the cron uses it to resume)
+ * and queues the check messages. An empty list finishes the scan at once.
+ */
 async function startChecks(env: Env, scanId: number, urls: string[]) {
   if (!urls.length) {
     await env.DB.prepare('UPDATE scans SET total = 0 WHERE id = ?').bind(scanId).run();
@@ -126,6 +154,7 @@ async function startChecks(env: Env, scanId: number, urls: string[]) {
   await enqueueChecks(env, scanId, urls);
 }
 
+/** Queues `check` messages for these URLs, ITEMS_PER_MESSAGE per message. */
 async function enqueueChecks(env: Env, scanId: number, urls: string[]) {
   // Group by host so one message mostly talks to one site, spaced by the per-host delay.
   const sorted = [...urls].sort((a, b) => hostOf(a).localeCompare(hostOf(b)));
@@ -133,7 +162,7 @@ async function enqueueChecks(env: Env, scanId: number, urls: string[]) {
   for (let i = 0; i < sorted.length; i += ITEMS_PER_MESSAGE) {
     jobs.push({ body: { t: 'check', scanId, items: sorted.slice(i, i + ITEMS_PER_MESSAGE).map((url) => ({ url })) } });
   }
-  for (let i = 0; i < jobs.length; i += 100) await env.JOBS.sendBatch(jobs.slice(i, i + 100));
+  for (let i = 0; i < jobs.length; i += QUEUE_SEND_BATCH_MAX) await env.JOBS.sendBatch(jobs.slice(i, i + QUEUE_SEND_BATCH_MAX));
 }
 
 /**
@@ -158,7 +187,17 @@ async function refreshChannels(env: Env, ids: string[]) {
   if (updates.length) await env.DB.batch(updates);
 }
 
-/** `channels` limits a full scan to those channels (e.g. one just added); omit it for all of them. */
+/**
+ * Starts a scan for a workspace and returns its id. The caller (api.ts) has already checked
+ * that the user belongs to the workspace; this enforces one running scan at a time and the
+ * workspace's daily limits (409/429 HttpError otherwise).
+ *   full:  refreshes channel info (1 YouTube unit per channel), then queues one `fetch`
+ *          message per channel. `channels` limits it to those channels (e.g. one just
+ *          added); omit it for all of them.
+ *   all:   rechecks every workspace link older than an hour.
+ *   urls:  rechecks the chosen `urls` that are in this workspace and older than 5 minutes.
+ * Writes a `scans` row and sends queue messages.
+ */
 export async function createScan(
   env: Env,
   ws: WorkspaceRow,
@@ -175,7 +214,7 @@ export async function createScan(
   if (kind !== 'full' && used.rechecks >= ws.daily_rechecks)
     throw new HttpError(429, `Daily limit reached: ${ws.daily_rechecks} rechecks per day.`);
 
-  const t = now();
+  const createdAt = now();
   if (kind === 'full') {
     if (channels && (!channels.length || channels.length > ws.max_channels)) throw new HttpError(400, 'Choose which channels to scan.');
     const only = channels ? JSON.stringify(channels) : null;
@@ -187,24 +226,25 @@ export async function createScan(
     if (!chans.length) throw new HttpError(400, channels ? 'That channel isn’t in this workspace.' : 'Add a channel before scanning.');
     const ids = chans.map((c) => c.channel_id);
     await refreshChannels(env, ids);
+    // Pages of 50 per channel, rounded up (at least 1), for the progress bar.
     const pages = await env.DB.prepare('SELECT COALESCE(SUM(MAX(1, (video_count + 49) / 50)), 0) AS n FROM channels WHERE id IN (SELECT value FROM json_each(?))')
       .bind(JSON.stringify(ids))
       .first<{ n: number }>();
     const scan = await env.DB.prepare(
       "INSERT INTO scans (workspace_id, kind, status, pending_fetch, expected_pages, channels, created_by, created_at, updated_at) VALUES (?, 'full', 'fetching', ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-      .bind(ws.id, chans.length, pages?.n ?? 0, channels ? JSON.stringify(ids) : null, email, t, t)
+      .bind(ws.id, chans.length, pages?.n ?? 0, channels ? JSON.stringify(ids) : null, email, createdAt, createdAt)
       .first<{ id: number }>();
     await env.JOBS.sendBatch(chans.map((c) => ({ body: { t: 'fetch', scanId: scan!.id, channelId: c.channel_id } as Job })));
     return scan!.id;
   }
 
-  if (kind === 'urls' && (!urls?.length || urls.length > 5000)) throw new HttpError(400, 'Choose between 1 and 5,000 links.');
+  if (kind === 'urls' && (!urls?.length || urls.length > MAX_URLS_PER_RECHECK)) throw new HttpError(400, 'Choose between 1 and 5,000 links.');
   const list = await workspaceUrls(env, ws.id, ago(FRESH[kind]), { only: kind === 'urls' ? urls : undefined });
   const scan = await env.DB.prepare(
     "INSERT INTO scans (workspace_id, kind, status, created_by, created_at, updated_at) VALUES (?, ?, 'checking', ?, ?, ?) RETURNING id",
   )
-    .bind(ws.id, kind, email, t, t)
+    .bind(ws.id, kind, email, createdAt, createdAt)
     .first<{ id: number }>();
   await startChecks(env, scan!.id, list);
   return scan!.id;
@@ -216,6 +256,11 @@ async function getScan(env: Env, id: number) {
   return env.DB.prepare('SELECT * FROM scans WHERE id = ?').bind(id).first<ScanRow>();
 }
 
+/**
+ * One page of one channel's uploads (2 YouTube units). Upserts its videos and their links,
+ * then queues the next page, or, when the channel is done, deletes videos that vanished
+ * from YouTube. When the last channel finishes, the scan moves on to checking links.
+ */
 async function handleFetch(env: Env, job: Extract<Job, { t: 'fetch' }>) {
   const page = job.page ?? 1;
   const scan = await getScan(env, job.scanId);
@@ -281,6 +326,11 @@ async function handleFetch(env: Env, job: Extract<Job, { t: 'fetch' }>) {
 
 type Checked = Omit<LinkResult, 'prevFinalUrl' | 'checkedAt'>;
 
+/**
+ * Upserts check results into the shared `links` table and advances the scan's progress in
+ * one batch; finishes the scan when every link is done. When a link's final URL changes,
+ * the old one is kept in prev_final_url so the report can flag a changed destination.
+ */
 async function saveResults(env: Env, scanId: number, results: Checked[]) {
   const stmts = [];
   if (results.length) {
@@ -309,10 +359,14 @@ async function saveResults(env: Env, scanId: number, results: Checked[]) {
     ),
   );
   const out = await env.DB.batch<{ done: number; total: number }>(stmts);
-  const prog = out[out.length - 1]?.results[0];
-  if (prog && prog.done >= prog.total) await finish(env, scanId);
+  const progress = out[out.length - 1]?.results[0];
+  if (progress && progress.done >= progress.total) await finish(env, scanId);
 }
 
+/**
+ * Checks the links in one message within this invocation's subrequest budget. Links that
+ * didn't fit go back on the queue as a new message (up to MAX_TRIES times each).
+ */
 async function handleCheck(env: Env, job: Extract<Job, { t: 'check' }>) {
   const scan = await getScan(env, job.scanId);
   if (!scan || scan.status !== 'checking') return;
@@ -351,6 +405,10 @@ async function handleCheck(env: Env, job: Extract<Job, { t: 'check' }>) {
   await saveResults(env, scan.id, results);
 }
 
+/**
+ * Runs one queue message. Expected failures (quota, YouTube errors) fail the scan with a
+ * message for the user; anything else is rethrown so index.ts retries the message.
+ */
 export async function handleJob(env: Env, job: Job) {
   try {
     if (job.t === 'fetch') await handleFetch(env, job);
@@ -369,7 +427,7 @@ export async function handleJob(env: Env, job: Job) {
 const DEFAULT_SECS_PER_LINK = 2;
 const SECS_PER_PAGE = 3;
 
-/** Inputs for the Rescan menu: how many links each run would check, quota cost, and timing. */
+/** Inputs for the Rescan menu: how many links each run would check, quota cost, and timing. Read-only. */
 export async function estimates(env: Env, workspaceId: string) {
   const [counts, units, quota, speed] = await env.DB.batch([
     env.DB.prepare(
@@ -394,8 +452,10 @@ export async function estimates(env: Env, workspaceId: string) {
   const c = counts!.results[0] as { links: number; staleDay: number; staleHour: number };
   const pages = (units!.results[0] as { pages: number }).pages;
   const used = (quota!.results[0] as { units?: number } | undefined)?.units ?? 0;
-  const limit = Number(env.GLOBAL_DAILY_UNITS ?? 8000);
-  const spl = (speed!.results[0] as { spl: number | null }).spl;
+  const limit = Number(env.GLOBAL_DAILY_UNITS ?? DEFAULT_DAILY_UNITS);
+  const measuredSecsPerLink = (speed!.results[0] as { spl: number | null }).spl;
+  // Ignore measurements outside a plausible range (e.g. a scan that sat stalled).
+  const plausible = measuredSecsPerLink && measuredSecsPerLink > 0.2 && measuredSecsPerLink < 60;
   return {
     links: c.links,
     staleDay: c.staleDay,
@@ -404,7 +464,7 @@ export async function estimates(env: Env, workspaceId: string) {
     fullScanPages: pages,
     quotaLeft: Math.max(0, limit - used),
     quotaLimit: limit,
-    secsPerLink: spl && spl > 0.2 && spl < 60 ? spl : DEFAULT_SECS_PER_LINK,
+    secsPerLink: plausible ? measuredSecsPerLink : DEFAULT_SECS_PER_LINK,
     secsPerPage: SECS_PER_PAGE,
   };
 }
@@ -418,6 +478,8 @@ const MAX_RESUMES = 3;
 /**
  * Queue messages can be lost (a message that fails every retry is dropped), which would
  * leave a scan stuck. Every few minutes, re-queue whatever a stalled scan hasn't checked.
+ * A stalled fetch phase can't be resumed (page tokens are gone), so it fails instead.
+ * At most 5 scans per run, to stay within the cron invocation's D1 query limit.
  */
 export async function sweepStalledScans(env: Env) {
   const stalled = (

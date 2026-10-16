@@ -2,6 +2,8 @@
   // Part-to-whole: one horizontal stacked bar in the fixed status palette, with a labeled,
   // clickable legend so color never carries meaning alone. The hover tooltip floats over the
   // bar so nothing below it moves.
+  // Shown near the top of the Report page. Report passes the channel-filtered rows and the
+  // active status filter; clicking a segment or legend item calls onSelect with a FILTERS key.
   import CircleX from '@lucide/svelte/icons/circle-x';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import CircleHelp from '@lucide/svelte/icons/circle-help';
@@ -21,25 +23,32 @@
     { key: 'pending', label: 'Not checked', color: 'var(--chart-faint)', icon: Clock, cats: ['pending'] },
   ];
 
+  // Keeps the tooltip's center this far from the bar's ends, so it never spills past them.
+  const TOOLTIP_HALF_WIDTH = 80;
+  // These four always appear in the legend, even at zero; the rest only when they have links.
+  const ALWAYS_SHOWN = ['broken', 'redirects', 'unverifiable', 'ok'];
+
   const total = $derived(rows.length);
   const parts = $derived(
     SEGMENTS.map((s) => ({ ...s, count: rows.filter((r) => s.cats.includes(r.cls.category)).length })).filter(
-      (s) => s.count > 0 || ['broken', 'redirects', 'unverifiable', 'ok'].includes(s.key),
+      (s) => s.count > 0 || ALWAYS_SHOWN.includes(s.key),
     ),
   );
   const okShare = $derived(total ? Math.round((parts.find((p) => p.key === 'ok')!.count / total) * 100) : 0);
   const pct = (n: number) => (total ? (n / total) * 100 : 0);
+  // A tiny share reads "<1%" rather than a misleading "0%".
   const fmtPct = (n: number) => {
-    const p = pct(n);
-    return p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`;
+    const share = pct(n);
+    return share > 0 && share < 1 ? '<1%' : `${Math.round(share)}%`;
   };
 
   let hover = $state<{ key: string; x: number } | null>(null);
   const hovered = $derived(parts.find((p) => p.key === hover?.key));
   let barEl = $state<HTMLDivElement>();
+  /** Moves the tooltip with the pointer, in px from the bar's left edge. */
   function track(e: MouseEvent, key: string) {
-    const r = barEl!.getBoundingClientRect();
-    hover = { key, x: Math.min(Math.max(e.clientX - r.left, 80), r.width - 80) };
+    const rect = barEl!.getBoundingClientRect();
+    hover = { key, x: Math.min(Math.max(e.clientX - rect.left, TOOLTIP_HALF_WIDTH), rect.width - TOOLTIP_HALF_WIDTH) };
   }
 </script>
 

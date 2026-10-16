@@ -1,4 +1,7 @@
 <script lang="ts">
+  // Channels page (#/channels): the YouTube channels this workspace scans. Reads the list and
+  // limits from `app.report`; adding or removing a channel calls the API, then reloads the
+  // whole report, since a channel's videos and links come and go with it.
   import { toast } from 'svelte-sonner';
   import Trash from '@lucide/svelte/icons/trash-2';
   import ExternalLink from '@lucide/svelte/icons/external-link';
@@ -16,8 +19,10 @@
 
   const scanning = $derived(report.scan?.status === 'fetching' || report.scan?.status === 'checking');
   const fullLeft = $derived(Math.max(0, report.limits.fullScans - report.usedToday.full));
+  // Why the per-channel Scan buttons are disabled, or null when they're usable. Also the tooltip text.
   const scanBlocked = $derived(scanning ? 'A scan is already running.' : !fullLeft ? 'No full scans left today.' : null);
 
+  /** Full-scans just this channel, then shows the Report page, where the scan banner tracks it. */
   async function scanChannel(id: string) {
     await startScan('full', undefined, [id]);
     if (app.report?.scan?.status === 'fetching') go('report');
@@ -27,11 +32,12 @@
     e.preventDefault();
     busy = true;
     try {
-      const c = await api<{ id: string; title: string }>(`/w/${app.wsId}/channels`, { method: 'POST', body: { input } });
+      const added = await api<{ id: string; title: string }>(`/w/${app.wsId}/channels`, { method: 'POST', body: { input } });
       input = '';
       await loadReport();
-      if (scanBlocked) toast.success(`Added ${c.title}. Scan it from this page when you're ready.`);
-      else toast.success(`Added ${c.title}`, { action: { label: 'Scan it now', onClick: () => scanChannel(c.id) }, duration: 10_000 });
+      // Adding doesn't scan, so offer to; the longer toast gives time to click the action.
+      if (scanBlocked) toast.success(`Added ${added.title}. Scan it from this page when you're ready.`);
+      else toast.success(`Added ${added.title}`, { action: { label: 'Scan it now', onClick: () => scanChannel(added.id) }, duration: 10_000 });
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -75,7 +81,8 @@
         <div class="flex items-center gap-2 max-sm:w-full max-sm:pl-14">
         <Hint text={scanBlocked ?? 'Fetch this channel’s videos and check their links, without rescanning your other channels. Uses one of today’s full scans.'}>
           {#snippet children(props)}
-            <!-- A wrapper keeps the tooltip reachable while the button is disabled. -->
+            <!-- A wrapper keeps the tooltip reachable while the button is disabled: a disabled
+                 button gets no hover or focus events, so the span is the trigger and takes focus instead. -->
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
             <span {...props} tabindex={scanBlocked ? 0 : undefined}>
               <Button size="sm" variant={c.fetchedAt ? 'outline' : 'default'} disabled={!!scanBlocked} onclick={() => scanChannel(c.id)}>

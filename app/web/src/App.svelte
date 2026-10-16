@@ -1,9 +1,14 @@
 <script lang="ts">
+  // The app shell: top bar, scan banner, the current page and the Help button. On mount it
+  // calls boot() (store.svelte.ts), which loads the signed-in user and their workspace's
+  // report; pages read everything from the `app` store, so this file only picks which to show.
+  // The admin page works without a workspace; every other page needs one and its report.
   import { onMount } from 'svelte';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster } from '$lib/components/ui/sonner';
   import * as Tooltip from '$lib/components/ui/tooltip';
   import TopBar from '$lib/components/TopBar.svelte';
+  import HelpButton from '$lib/components/help/HelpButton.svelte';
   import ScanBanner from '$lib/components/ScanBanner.svelte';
   import NoAccess from '$lib/pages/NoAccess.svelte';
   import Report from '$lib/pages/Report.svelte';
@@ -19,6 +24,7 @@
 
 <ModeWatcher defaultMode="system" />
 <Toaster position="bottom-center" />
+<!-- Shared hover delay for every tooltip in the app (Hint.svelte, StatusBadge). -->
 <Tooltip.Provider delayDuration={300}>
 
 {#if app.bootError}
@@ -50,5 +56,6 @@
       {/if}
     </main>
   {/if}
+  <HelpButton />
 {/if}
 </Tooltip.Provider>

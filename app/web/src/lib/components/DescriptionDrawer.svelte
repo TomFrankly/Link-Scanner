@@ -1,6 +1,12 @@
 <script lang="ts">
   // Bottom drawer for fixing one video's description. It doesn't block the page, so the
   // report stays scrollable behind it, and its top edge can be dragged to resize it.
+  //
+  // Mounted once by the Report page and opened by setting `ui.drawerVideoId` (the "Fix
+  // description" buttons). The video's problem links come from `data.rows`, their planned
+  // fixes from `data.fixes`, and the description itself is fetched fresh from the API.
+  // The rewriting is done by the pure functions in shared/fixes.ts; nothing here is saved,
+  // and nothing changes on YouTube: the user copies the result into YouTube Studio.
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import X from '@lucide/svelte/icons/x';
@@ -17,17 +23,26 @@
   import { applyFixes, FIXABLE, highlightRanges, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
 
   const MIN = 220;
-  const maxHeight = () => window.innerHeight - 72;
+  // Room left above the drawer at full height, so the top bar stays visible.
+  const TOP_GAP = 72;
+  // Default height before the user has resized it, as a share of the window.
+  const DEFAULT_SHARE = 0.6;
+  // How far one arrow-key press on the handle resizes it, in px.
+  const KEY_STEP = 40;
+  // The chosen height is remembered per browser.
+  const HEIGHT_KEY = 'ytlinks-drawer-h';
+  const maxHeight = () => window.innerHeight - TOP_GAP;
   let height = $state(0);
   onMount(() => {
     let saved = 0;
     try {
-      saved = Number(localStorage.getItem('ytlinks-drawer-h')) || 0;
+      saved = Number(localStorage.getItem(HEIGHT_KEY)) || 0;
     } catch {
       /* private mode */
     }
-    height = Math.min(Math.max(saved || window.innerHeight * 0.6, MIN), maxHeight());
+    height = Math.min(Math.max(saved || window.innerHeight * DEFAULT_SHARE, MIN), maxHeight());
   });
+  // Publish the height so the report can pad its end and the Help button can sit above it.
   $effect(() => {
     ui.drawerHeight = ui.drawerVideoId ? height : 0;
   });
@@ -36,6 +51,7 @@
   let dragging = $state(false);
   function startDrag(e: PointerEvent) {
     dragging = true;
+    // Capture keeps move events coming to the handle even when the pointer outruns it.
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
   function drag(e: PointerEvent) {
@@ -44,14 +60,14 @@
   function endDrag() {
     dragging = false;
     try {
-      localStorage.setItem('ytlinks-drawer-h', String(Math.round(height)));
+      localStorage.setItem(HEIGHT_KEY, String(Math.round(height)));
     } catch {
       /* private mode */
     }
   }
   function keyResize(e: KeyboardEvent) {
-    if (e.key === 'ArrowUp') height = Math.min(height + 40, maxHeight());
-    else if (e.key === 'ArrowDown') height = Math.max(height - 40, MIN);
+    if (e.key === 'ArrowUp') height = Math.min(height + KEY_STEP, maxHeight());
+    else if (e.key === 'ArrowDown') height = Math.max(height - KEY_STEP, MIN);
     else return;
     e.preventDefault();
   }
@@ -61,23 +77,27 @@
     for (const r of data.rows) for (const v of r.videos) if (v.id === ui.drawerVideoId) return v;
     return null;
   });
+  // This video's links that the fixes can act on (broken or redirected), in the shape shared/fixes.ts expects.
   const links = $derived(data.rows.filter((r) => r.videos.some((v) => v.id === ui.drawerVideoId) && FIXABLE.includes(r.cls.category)));
   const problems = $derived<Problem[]>(
     links.map((r) => ({ url: r.url, category: r.cls.category, finalUrl: r.result?.finalUrl ?? null, detail: r.cls.detail ?? null })),
   );
+  // The planned fix for each of those links, keyed by URL; links without one get a FIX THIS marker.
   const decisions = $derived(
     Object.fromEntries(
       links.flatMap((r) => {
-        const f = data.fixes.get(r.url);
-        return f ? [[r.url, { action: f.action, replacement: f.replacement }]] : [];
+        const fix = data.fixes.get(r.url);
+        return fix ? [[r.url, { action: fix.action, replacement: fix.replacement }]] : [];
       }),
     ),
   );
+  // The "Update all redirects" tab only shows when there's a redirect to update.
   const hasRedirects = $derived(problems.some((p) => REDIRECTS.includes(p.category) && p.finalUrl && p.finalUrl !== p.url));
 
   // ---- description: fetched fresh from YouTube each time a video opens ----
   let description = $state<string | null>(null);
   let loadError = $state<string | null>(null);
+  // Not state, so writing it here doesn't rerun the effect. It skips refetching the video already loaded.
   let loadedFor = '';
   $effect(() => {
     const id = ui.drawerVideoId;
@@ -86,11 +106,14 @@
     description = null;
     loadError = null;
     edited = false;
+    // The checks drop a reply that arrives after the user has moved on to another video.
     api<{ description: string }>(`/w/${app.wsId}/videos/${encodeURIComponent(id)}/description`)
       .then((r) => ui.drawerVideoId === id && (description = r.description))
       .catch((e) => ui.drawerVideoId === id && (loadError = (e as Error).message));
   });
 
+  // The tabs above the editor: apply planned fixes (unplanned links get a marker), remove every
+  // problem link, swap every redirect for where it lands now, or show the original text.
   let mode = $state<'apply' | 'remove' | 'redirects' | 'original'>('apply');
   const generated = $derived.by((): FixResult | null => {
     if (description === null) return null;
@@ -109,6 +132,7 @@
   const stale = $derived(edited && generated !== null && generated.text !== text);
 
   // Highlight changed spots by searching the current text, so they survive hand edits.
+  // `generated.parts` marks each changed run with `hl`; those runs are what we search for.
   const needles = $derived((generated?.parts ?? []).filter((p) => p.hl && p.text.trim()).map((p) => p.text));
   const segments = $derived.by(() => {
     const out: { t: string; hl: boolean }[] = [];
@@ -118,13 +142,16 @@
       out.push({ t: text.slice(r.start, r.end), hl: true });
       at = r.end;
     }
+    // A <pre> drops a final line break that a textarea shows as an empty line; the extra one evens them out.
     out.push({ t: text.slice(at) + '\n', hl: false });
     return out;
   });
+  // Highlight color per tab: red for removals, green for updated redirects, amber otherwise.
   const tint = $derived(
     mode === 'remove' ? 'bg-[#d03b3b]/15 dark:bg-[#d03b3b]/30' : mode === 'redirects' ? 'bg-[#0ca30c]/15 dark:bg-[#0ca30c]/30' : 'bg-[#fab219]/30',
   );
 
+  // The highlight layer can't scroll by itself (it ignores the pointer), so it follows the textarea.
   let overlay = $state<HTMLPreElement>();
   const syncScroll = (e: Event) => overlay && (overlay.scrollTop = (e.currentTarget as HTMLTextAreaElement).scrollTop);
 
@@ -141,6 +168,7 @@
     if (generated) text = generated.text;
   }
   const close = () => (ui.drawerVideoId = null);
+  // Escape closes the drawer, unless the fix dialog is open on top of it (Escape closes that instead).
   const onKey = (e: KeyboardEvent) => e.key === 'Escape' && ui.drawerVideoId && !ui.fixLinkUrl && close();
 
   const MODES = $derived([
@@ -244,7 +272,10 @@
             <Skeleton class="h-3 w-3/4" /><Skeleton class="h-3 w-full" /><Skeleton class="h-3 w-5/6" /><Skeleton class="h-3 w-2/3" />
           </div>
         {:else}
-          <!-- A transparent textarea over a highlighted copy of its own text. -->
+          <!-- A transparent textarea over a highlighted copy of its own text. A textarea can't style
+               parts of its text, so the <pre> behind it draws the text and the highlights, and the
+               textarea on top shows only the caret and selection. Both need identical font, padding,
+               wrapping and scrollbar space, or the highlights drift out of line with the text. -->
           <div class="relative min-h-0 flex-1 overflow-hidden rounded-md border">
             <pre
               bind:this={overlay}

@@ -1,4 +1,10 @@
 <script lang="ts">
+  // Report page (#/report, the default): the heading summary, Export and Rescan menus, the
+  // health chart, and the list of links (or videos) with filters, search and sort. All rows
+  // come from `data.rows` in store.svelte.ts, already classified in the browser with this
+  // workspace's rules, so filtering, searching and the counts here never call the server.
+  // Actions go through the store (addRule, removeRule, startScan) or open the fix dialog and
+  // the description drawer by setting `ui.fixLinkUrl` / `ui.drawerVideoId`.
   import { MediaQuery, SvelteSet } from 'svelte/reactivity';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
@@ -32,11 +38,16 @@
   import { addRule, app, data, go, removeRule, startScan, ui } from '$lib/store.svelte';
   import type { Row } from '$lib/types';
 
+  // How many links show before "Show more", and how many videos an expanded link lists at first.
   const PAGE = 100;
+  const VIDEOS_SHOWN = 10;
+  const VIDEOS_MORE = 25;
   const report = $derived(app.report!);
   // Full-width table rows must span only the visible columns, or the fixed layout adds a phantom one.
   const sm = new MediaQuery('min-width: 640px');
   const md = new MediaQuery('min-width: 768px');
+  // The Status column appears at Tailwind's `sm` breakpoint and "Used in" at `md`, so the table
+  // has 2, 3 or 4 columns; the expanded-videos row and the empty-state row use this as colspan.
   const cols = $derived(md.current ? 4 : sm.current ? 3 : 2);
   const scanning = $derived(report.scan?.status === 'fetching' || report.scan?.status === 'checking');
 
@@ -46,46 +57,56 @@
   let channel = $state('all');
   let limit = $state(PAGE);
   let view = $state<'links' | 'videos'>('links');
+  // Links whose video list is expanded, and how many videos each one shows so far.
   const open = new SvelteSet<string>();
   const videoLimit = $state<Record<string, number>>({});
   const toggle = (url: string) => (open.has(url) ? open.delete(url) : open.add(url));
 
+  // Rows narrowed by the channel picker. Counts, the chart and the heading all use this, so
+  // they agree with each other; the status filter and search only narrow the table.
   const inChannel = $derived(channel === 'all' ? data.rows : data.rows.filter((r) => r.videos.some((v) => v.channelId === channel)));
   const counts = $derived(Object.fromEntries(FILTERS.map((f) => [f.key, inChannel.filter((r) => f.match(r.cls.category)).length])));
+  // The table's rows (and what Export saves): status filter, then search over the link, where
+  // it ends up, and the titles of the videos using it. Sorted by most videos or A to Z.
   const rows = $derived.by(() => {
-    const f = FILTERS.find((x) => x.key === filter)!;
-    const q = query.trim().toLowerCase();
-    const out = inChannel.filter(
-      (r) =>
-        f.match(r.cls.category) &&
-        (!q || r.url.toLowerCase().includes(q) || (r.result?.finalUrl ?? '').toLowerCase().includes(q) || r.videos.some((v) => v.title.toLowerCase().includes(q))),
-    );
+    const activeFilter = FILTERS.find((x) => x.key === filter)!;
+    const needle = query.trim().toLowerCase();
+    const matchesSearch = (r: Row) =>
+      !needle ||
+      r.url.toLowerCase().includes(needle) ||
+      (r.result?.finalUrl ?? '').toLowerCase().includes(needle) ||
+      r.videos.some((v) => v.title.toLowerCase().includes(needle));
+    const out = inChannel.filter((r) => activeFilter.match(r.cls.category) && matchesSearch(r));
     return out.sort((a, b) => (sort === 'az' ? a.url.localeCompare(b.url) : b.videos.length - a.videos.length));
   });
   const shown = $derived(rows.slice(0, limit));
+  // URLs for "Recheck flagged links": everything not OK and not ignored, across all channels.
   const flagged = $derived(data.rows.filter((r) => isFlagged(r.cls.category)).map((r) => r.url));
   // How many problem links each video has, for the "+N other problem links" hint.
+  // Unverifiable links don't count: they're probably fine, just blocked.
+  const countsAsProblem = (r: Row) => isFlagged(r.cls.category) && r.cls.category !== 'unverifiable';
   const problemsByVideo = $derived.by(() => {
-    const m = new Map<string, number>();
-    for (const r of data.rows)
-      if (isFlagged(r.cls.category) && r.cls.category !== 'unverifiable') for (const v of r.videos) m.set(v.id, (m.get(v.id) ?? 0) + 1);
-    return m;
+    const perVideo = new Map<string, number>();
+    for (const r of data.rows) if (countsAsProblem(r)) for (const v of r.videos) perVideo.set(v.id, (perVideo.get(v.id) ?? 0) + 1);
+    return perVideo;
   });
   const channelTitle = $derived(Object.fromEntries(report.channels.map((c) => [c.id, c.title])));
 
+  // Scans and rechecks still allowed today under the workspace's daily limits.
   const left = $derived({
     full: Math.max(0, report.limits.fullScans - report.usedToday.full),
     rechecks: Math.max(0, report.limits.rechecks - report.usedToday.rechecks),
   });
   const lastScan = $derived(report.scan?.finished_at ? ago(report.scan.finished_at) : null);
+  /** "just now", "5 min ago", "3 hours ago", "2 days ago", or a date after a month. */
   function ago(iso: string) {
-    const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-    if (m < 1) return 'just now';
-    if (m < 60) return `${m} min ago`;
-    const h = Math.round(m / 60);
-    if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
-    const d = Math.round(h / 24);
-    return d < 30 ? `${d} day${d === 1 ? '' : 's'} ago` : new Date(iso).toLocaleDateString([], { dateStyle: 'medium' });
+    const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+    const days = Math.round(hours / 24);
+    return days < 30 ? `${days} day${days === 1 ? '' : 's'} ago` : new Date(iso).toLocaleDateString([], { dateStyle: 'medium' });
   }
   // Heading numbers follow the channel picker.
   const attentionCount = $derived(inChannel.filter((r) => FIXABLE.includes(r.cls.category)).length);
@@ -94,9 +115,12 @@
   const plannedCount = $derived(inChannel.filter((r) => FIXABLE.includes(r.cls.category) && data.fixes.has(r.url)).length);
   const scopeChannels = $derived(channel === 'all' ? report.channels : report.channels.filter((c) => c.id === channel));
   const est = $derived(runEstimates(report.estimates, flagged.length));
+  // A full scan is offered only if today's shared YouTube quota can cover it.
   const fullTooBig = $derived(est.full.units > report.estimates.quotaLeft);
+  // Export file name: "link-report-" plus the workspace name as a lowercase slug.
   const fileBase = $derived(`link-report-${report.workspace.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`);
 
+  /** Exports the rows currently in the table (see lib/export.ts for the formats). */
   async function exportAs(kind: 'csv' | 'xlsx' | 'sheets') {
     try {
       if (kind === 'csv') downloadCsv(rows, channelTitle, fileBase);
@@ -110,10 +134,12 @@
     }
   }
 
-  function setFilter(k: string) {
-    filter = k;
+  function setFilter(key: string) {
+    filter = key;
     limit = PAGE;
   }
+  // The ignore rules hiding a link: one for this exact URL, or one for its domain or a parent
+  // domain (same matching as classify in shared/core.ts). Unignore removes all of them.
   const ruleFor = (r: Row) => report.rules.filter((x) => x.type === 'ignored' && (x.value === r.url || (!x.value.includes('/') && (r.host === x.value || r.host.endsWith(`.${x.value}`)))));
 </script>
 
@@ -226,13 +252,14 @@
   <div class="bg-card mt-4 rounded-lg border">
     <!-- One toolbar: view, status filter, channel, search, sort. -->
     <div class="flex flex-wrap items-center gap-2 border-b p-2">
-      <div class="bg-muted inline-flex rounded-md p-0.5" role="tablist" aria-label="View">
+      <!-- Same height, border and background as the small Select triggers beside it. -->
+      <div class="border-input dark:bg-input/30 inline-flex h-7 items-center gap-0.5 rounded-md border p-0.5" role="tablist" aria-label="View">
         {#each [['links', 'Links'], ['videos', 'Videos']] as [k, label] (k)}
           <button
             role="tab"
             aria-selected={view === k}
-            class="rounded-[5px] px-2.5 py-1 text-sm font-medium transition-colors duration-150 {view === k
-              ? 'bg-background text-foreground shadow-xs'
+            class="flex h-full items-center rounded-[4px] px-2 text-sm font-medium transition-colors duration-150 {view === k
+              ? 'bg-muted text-foreground'
               : 'text-muted-foreground hover:text-foreground'}"
             onclick={() => ((view = k as 'links' | 'videos'), (limit = PAGE))}>{label}</button
           >
@@ -300,6 +327,7 @@
         <Table.Body>
           {#each shown as r (r.url)}
             {@const final = r.result?.finalUrl}
+            <!-- A trailing-slash difference isn't a real move, so it isn't shown as one. -->
             {@const moved = final && final.replace(/\/$/, '') !== r.url.replace(/\/$/, '')}
             {@const startBase = baseDomain(r.host)}
             {@const finalBase = final ? baseDomain(hostOf(final)) : ''}
@@ -307,7 +335,8 @@
             <Table.Row class="align-top {isOpen ? 'border-b-0' : ''}">
               <Table.Cell class="hidden py-3 pl-4 sm:table-cell"><StatusBadge category={r.cls.category} /></Table.Cell>
               <Table.Cell class="py-3 pl-4 whitespace-normal sm:pl-2">
-                <!-- Phones: status sits above the link instead of in its own column. -->
+                <!-- Phones: status sits above the link instead of in its own column. It's a plain badge
+                     there (no tooltip), since phones can't hover to see one. -->
                 <div class="mb-1.5 sm:hidden"><StatusBadge category={r.cls.category} tooltip={false} /></div>
                 <a href={r.url} target="_blank" rel="noreferrer" class="font-mono text-xs font-medium break-all hover:underline">{r.url}</a>
                 {#if moved}
@@ -371,7 +400,8 @@
               </Table.Cell>
             </Table.Row>
             {#if isOpen}
-              {@const vids = r.videos.slice(0, videoLimit[r.url] ?? 10)}
+              {@const vids = r.videos.slice(0, videoLimit[r.url] ?? VIDEOS_SHOWN)}
+              {@const channelCount = new Set(r.videos.map((v) => v.channelId)).size}
               <Table.Row class="hover:bg-transparent">
                 <Table.Cell colspan={cols} class="px-4 pt-0 pb-4 whitespace-normal">
                   <div class="bg-muted/40 rounded-md border">
@@ -379,13 +409,14 @@
                       <span>
                         Used in <span class="text-foreground font-medium tabular-nums">{r.videos.length}</span> video{r.videos.length === 1 ? '' : 's'}
                         {#if report.channels.length > 1}
-                          across {new Set(r.videos.map((v) => v.channelId)).size} channel{new Set(r.videos.map((v) => v.channelId)).size === 1 ? '' : 's'}
+                          across {channelCount} channel{channelCount === 1 ? '' : 's'}
                         {/if}
                       </span>
                     </div>
                     <ul class="divide-y">
                       {#each vids as v (v.id)}
-                        {@const others = (problemsByVideo.get(v.id) ?? 0) - (isFlagged(r.cls.category) && r.cls.category !== 'unverifiable' ? 1 : 0)}
+                        <!-- Problem links in this video besides the one this row is about. -->
+                        {@const others = (problemsByVideo.get(v.id) ?? 0) - (countsAsProblem(r) ? 1 : 0)}
                         <li class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                           <img
                             src="https://i.ytimg.com/vi/{v.id}/mqdefault.jpg"
@@ -427,9 +458,9 @@
                       <div class="border-t px-3 py-2">
                         <button
                           class="text-muted-foreground hover:text-foreground text-xs"
-                          onclick={() => (videoLimit[r.url] = (videoLimit[r.url] ?? 10) + 25)}
+                          onclick={() => (videoLimit[r.url] = (videoLimit[r.url] ?? VIDEOS_SHOWN) + VIDEOS_MORE)}
                         >
-                          Show {Math.min(25, r.videos.length - vids.length)} more of {r.videos.length}
+                          Show {Math.min(VIDEOS_MORE, r.videos.length - vids.length)} more of {r.videos.length}
                         </button>
                       </div>
                     {/if}
@@ -468,5 +499,5 @@
 
 <FixLinkDialog />
 <DescriptionDrawer />
-<!-- Keeps the end of the list reachable above the open drawer. -->
+<!-- Keeps the end of the list reachable above the open drawer, which overlays the page. -->
 <div style="height: {ui.drawerHeight}px" aria-hidden="true"></div>

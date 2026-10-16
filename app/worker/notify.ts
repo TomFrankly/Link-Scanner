@@ -1,8 +1,13 @@
 // Emails the admin when a full scan finishes or any scan fails. Uses the `send_email`
 // binding, which on Workers Free can only deliver to verified destination addresses;
 // that's fine here since the only recipient is the admin. Without the binding this is a no-op.
+// Called from scan.ts exactly once per scan, when it moves to done or failed.
 import type { Env } from './env.ts';
 
+/**
+ * Sends the "scan finished/failed" email for one scan (1 D1 read, 1 email). Rechecks that
+ * succeed are skipped to keep the inbox quiet. Never throws.
+ */
 export async function notifyScanEnded(env: Env, scanId: number) {
   if (!env.EMAIL || !env.NOTIFY_FROM) return;
   try {
@@ -14,15 +19,16 @@ export async function notifyScanEnded(env: Env, scanId: number) {
       .first<{ kind: string; status: string; total: number; error: string | null; created_by: string; created_at: string; finished_at: string | null; workspace: string }>();
     if (!s || (s.kind !== 'full' && s.status !== 'failed')) return;
 
+    const failed = s.status === 'failed';
     const kind = s.kind === 'full' ? 'Full scan' : s.kind === 'all' ? 'Recheck' : 'Link recheck';
     const mins = s.finished_at ? Math.max(1, Math.round((Date.parse(s.finished_at) - Date.parse(s.created_at)) / 60_000)) : null;
-    const subject =
-      s.status === 'failed' ? `${kind} failed: ${s.workspace}` : `${kind} finished: ${s.workspace} (${s.total.toLocaleString('en-US')} links checked)`;
+    const linksChecked = s.total.toLocaleString('en-US');
+    const subject = failed ? `${kind} failed: ${s.workspace}` : `${kind} finished: ${s.workspace} (${linksChecked} links checked)`;
     const lines = [
-      `${kind} for "${s.workspace}" ${s.status === 'failed' ? 'failed' : 'finished'}.`,
+      `${kind} for "${s.workspace}" ${failed ? 'failed' : 'finished'}.`,
       '',
       `Started by: ${s.created_by}`,
-      s.status === 'failed' ? `Reason: ${s.error ?? 'unknown'}` : `Links checked: ${s.total.toLocaleString('en-US')}`,
+      failed ? `Reason: ${s.error ?? 'unknown'}` : `Links checked: ${linksChecked}`,
       ...(mins ? [`Took: about ${mins} min`] : []),
       '',
       env.APP_URL ? `Open the report: ${env.APP_URL}` : '',

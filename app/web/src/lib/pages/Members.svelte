@@ -1,4 +1,7 @@
 <script lang="ts">
+  // Members page (#/members): who can open this workspace, and its name. Owners (and the app
+  // admin) can add and remove people and rename it; members only see the list. The member
+  // list isn't part of the report, so it's fetched here; each change returns the new list.
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import X from '@lucide/svelte/icons/x';
@@ -35,9 +38,9 @@
     }
   }
 
-  async function remove(m: string) {
+  async function remove(memberEmail: string) {
     try {
-      members = await api<Member[]>(`/w/${app.wsId}/members/${encodeURIComponent(m)}`, { method: 'DELETE' });
+      members = await api<Member[]>(`/w/${app.wsId}/members/${encodeURIComponent(memberEmail)}`, { method: 'DELETE' });
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -47,9 +50,10 @@
     e.preventDefault();
     try {
       await api(`/w/${app.wsId}`, { method: 'PATCH', body: { name } });
+      // Update both copies of the name: the report's and the top bar's workspace switcher.
       report.workspace.name = name;
-      const w = app.me?.workspaces.find((x) => x.id === app.wsId);
-      if (w) w.name = name;
+      const workspace = app.me?.workspaces.find((x) => x.id === app.wsId);
+      if (workspace) workspace.name = name;
       toast.success('Workspace renamed');
     } catch (err) {
       toast.error((err as Error).message);

@@ -1,5 +1,7 @@
 <script lang="ts">
   // One-line summary of a link's planned fix, with a way to change it.
+  // Shown under a link wherever it's listed; renders nothing when the link has no plan.
+  // Reads `data.fixes`; clicking opens FixLinkDialog through `ui.fixLinkUrl`.
   import Replace from '@lucide/svelte/icons/replace';
   import Trash from '@lucide/svelte/icons/trash-2';
   import { data, ui } from '$lib/store.svelte';

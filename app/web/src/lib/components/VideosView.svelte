@@ -1,9 +1,13 @@
 <script lang="ts">
+  // The Report page's "Videos" view: the same filtered links, grouped by the video that uses
+  // them, most problems first. Each video expands to list its links with a "Plan fix" button,
+  // and "Fix description" opens the DescriptionDrawer via `ui.drawerVideoId`. Rows come in as
+  // props from Report.svelte; planned fixes are read from `data.fixes`.
   import { SvelteSet } from 'svelte/reactivity';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import { Button } from '$lib/components/ui/button';
-    import StatusBadge from '$lib/components/StatusBadge.svelte';
+  import StatusBadge from '$lib/components/StatusBadge.svelte';
   import PlannedFix from '$lib/components/PlannedFix.svelte';
   import FileText from '@lucide/svelte/icons/file-text';
   import PlanFixButton from '$lib/components/PlanFixButton.svelte';
@@ -41,15 +45,17 @@
     chips: { label: string; n: number; cls: string }[];
   }
 
+  // Videos with at least one link in `rows`, each holding every one of its links from `allRows`,
+  // sorted inside by severity, plus the summary chips. Most problem links first, then by title.
   const videos = $derived.by((): Group[] => {
     const shown = new Set(rows.flatMap((r) => r.videos.map((v) => v.id)));
     const byId = new Map<string, { video: VideoRef; links: Row[] }>();
     for (const r of allRows) {
       for (const v of r.videos) {
         if (!shown.has(v.id)) continue;
-        let g = byId.get(v.id);
-        if (!g) byId.set(v.id, (g = { video: v, links: [] }));
-        g.links.push(r);
+        let entry = byId.get(v.id);
+        if (!entry) byId.set(v.id, (entry = { video: v, links: [] }));
+        entry.links.push(r);
       }
     }
     return [...byId.values()]
@@ -68,7 +74,8 @@
       .sort((a, b) => b.problems.length - a.problems.length || a.video.title.localeCompare(b.video.title));
   });
 
-  // Back to the first page whenever the filtered rows change.
+  // Back to the first page whenever the filtered rows change. A writable $derived: "Show more"
+  // raises it, and a new `rows` resets it to PAGE.
   let limit = $derived.by(() => {
     void rows;
     return PAGE;
@@ -78,9 +85,10 @@
   const toggle = (id: string) => (open.has(id) ? open.delete(id) : open.add(id));
 
   const date = (s: string | null) => (s ? new Date(s).toLocaleDateString([], { dateStyle: 'medium' }) : null);
+  // Where a link ends up, if that's really somewhere else (a trailing slash alone doesn't count).
   const moved = (r: Row) => {
-    const f = r.result?.finalUrl;
-    return f && f.replace(/\/$/, '') !== r.url.replace(/\/$/, '') ? f : null;
+    const final = r.result?.finalUrl;
+    return final && final.replace(/\/$/, '') !== r.url.replace(/\/$/, '') ? final : null;
   };
 </script>
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+  // The colored pill naming a link's category (Broken, Domain changed, ...), with a tooltip
+  // explaining it. Labels and colors come from CATEGORY in lib/categories.ts.
   import type { Category } from '$shared/core';
   import { CATEGORY } from '$lib/categories';
   import Hint from './Hint.svelte';
@@ -9,6 +11,7 @@
   const cls = $derived(`inline-flex h-5 cursor-default items-center rounded-full border px-2 text-xs font-medium whitespace-nowrap ${meta.cls}`);
 </script>
 
+<!-- With a tooltip it's a button, so keyboard users can focus it to read the explanation. -->
 {#if tooltip}
   <Hint text={meta.help} side="right">
     {#snippet children(props)}

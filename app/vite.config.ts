@@ -11,6 +11,8 @@ export default defineConfig(({ mode }) => {
   const brand = {
     name: env.VITE_BRAND_NAME?.trim() || '',
     logo: env.VITE_LOGO_URL?.trim() || '/logo.svg',
+    // Where the Help dialog's "Read the code" link points. Forks can point it at their own repo.
+    repo: env.VITE_REPO_URL?.trim() || 'https://github.com/TomFrankly/Link-Scanner',
   };
   const title = brand.name ? `Link Checker · ${brand.name}` : 'Link Checker';
   const brandHtml: Plugin = {

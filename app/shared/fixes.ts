@@ -1,7 +1,9 @@
 // Rewrites a video description to deal with its problem links. Pure functions, used by the
-// "Fix description" panel; the result is copied into YouTube Studio by hand.
+// "Fix description" panel; the result is copied into YouTube Studio by hand (the app
+// has no write access to YouTube). No I/O here, and shared/fixes.test.ts covers it.
 import { hostOf, type Category } from './core.ts';
 
+/** A link the report flagged, as the fix functions need it. */
 export interface Problem {
   url: string;
   category: Category;
@@ -15,15 +17,19 @@ export interface Part {
   hl?: boolean;
 }
 
+/** The rewritten description, how many links changed, and the same text split for highlighting. */
 export interface FixResult {
   text: string;
   changed: number;
   parts: Part[];
 }
 
+/** Categories the Fix description panel offers to fix. */
 export const FIXABLE: Category[] = ['broken', 'parked', 'domain-changed', 'destination-changed', 'homepage'];
+/** Fixable categories where the link still works but lands somewhere new. */
 export const REDIRECTS: Category[] = ['domain-changed', 'destination-changed', 'homepage'];
 
+/** Short reason shown in a FIX THIS marker, e.g. "redirects to notion.com". */
 export function reasonFor(p: Problem): string {
   if (p.category === 'parked') return 'parked domain';
   if (p.category === 'homepage') return 'goes to homepage';
@@ -36,7 +42,7 @@ export function reasonFor(p: Problem): string {
 
 // Same tokenizing as extractUrls in core.ts, so a URL only matches where the extractor saw
 // exactly that URL: never inside a longer URL it's a prefix of, and trailing punctuation stays.
-const URL_RE = /https?:\/\/[^\s<>"'​]+/gi;
+const URL_RE = /https?:\/\/[^\s<>"'\u200B]+/gi;
 function trimUrl(u: string) {
   while (/[.,;:!?'"\])}>]$/.test(u)) {
     if (u.endsWith(')') && (u.match(/\(/g) || []).length >= (u.match(/\)/g) || []).length) break;
@@ -63,19 +69,20 @@ function rewriteLines(desc: string, problems: Problem[], pick: (p: Problem) => s
     for (const m of line.matchAll(URL_RE)) {
       const u = trimUrl(m[0]);
       const p = byUrl.get(u);
-      const rep = p ? pick(p) : null;
-      if (rep === null) continue;
+      const replacement = p ? pick(p) : null;
+      if (replacement === null) continue;
       if (m.index > last) parts.push({ text: line.slice(last, m.index) });
-      parts.push({ text: rep, hl: true });
-      last = m.index + u.length;
+      parts.push({ text: replacement, hl: true });
+      last = m.index + u.length; // only the trimmed URL is replaced; trailing punctuation stays
       hits++;
-      if (!rep) removed++;
+      if (!replacement) removed++;
     }
     if (last < line.length) parts.push({ text: line.slice(last) });
     return { parts, hits, removed };
   });
 }
 
+/** Joins lines back with newlines, dropping empty parts. */
 function join(lines: Part[][]): Omit<FixResult, 'changed'> {
   const parts: Part[] = [];
   lines.forEach((l, i) => {
@@ -85,6 +92,7 @@ function join(lines: Part[][]): Omit<FixResult, 'changed'> {
   return { text: parts.map((p) => p.text).join(''), parts };
 }
 
+/** rewriteLines without any tidying: every swap is a plain substitution. */
 function replaceWith(desc: string, problems: Problem[], pick: (p: Problem) => string | null): FixResult {
   const lines = rewriteLines(desc, problems, pick);
   return { ...join(lines.map((l) => l.parts)), changed: lines.reduce((n, l) => n + l.hits, 0) };

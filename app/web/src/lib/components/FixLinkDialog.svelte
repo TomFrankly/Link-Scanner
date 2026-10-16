@@ -1,5 +1,8 @@
 <script lang="ts">
   // Plan what happens to one link when descriptions are fixed: replace it or remove it.
+  // Mounted once by the Report page; opens when `ui.fixLinkUrl` is set (the "Replace with a
+  // different link…" menu item, or clicking a PlannedFix summary). Saves through setFix in
+  // store.svelte.ts, which stores the plan for the whole workspace.
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
   import { REDIRECTS } from '$shared/fixes';
@@ -19,6 +22,7 @@
     field.style.height = 'auto';
     field.style.height = `${field.scrollHeight}px`;
   }
+  // `void replacement` subscribes the effect, so it refits on every change, typed or set in code.
   $effect(() => {
     void replacement;
     fit();
@@ -34,6 +38,7 @@
     replacement = current?.replacement ?? suggestion ?? '';
   });
 
+  // A replacement needs to look like a web address (scheme, then something with a dot).
   const valid = $derived(choice === 'remove' || /^https?:\/\/\S+\.\S+/.test(replacement.trim()));
   const close = () => (ui.fixLinkUrl = null);
 
@@ -81,6 +86,8 @@
             <span class="flex-1 space-y-2">
               <span class="block text-sm font-medium">Replace with a new link</span>
               <Label for="replacement" class="sr-only">Replacement link</Label>
+              <!-- A textarea only so long links wrap. It holds one line: pasted line breaks are
+                   stripped and Enter submits the form. -->
               <textarea
                 id="replacement"
                 bind:this={field}

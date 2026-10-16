@@ -1,3 +1,4 @@
+// Helpers the vendored shadcn-svelte components in components/ui import. Keep the names as is.
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 

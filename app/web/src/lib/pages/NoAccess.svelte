@@ -1,4 +1,6 @@
 <script lang="ts">
+  // Shown instead of the pages when the signed-in email belongs to no workspace yet. The
+  // "different email" button signs out of Cloudflare Access, which guards the whole app.
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
   import { app } from '$lib/store.svelte';
