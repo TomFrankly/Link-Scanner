@@ -16,10 +16,11 @@
   // The plain-text editor in the Fix description drawer, built on CodeMirror 6. Descriptions
   // are plain text, so what you see is exactly what gets copied. On top of the text it draws:
   // - every URL as a chip (still ordinary text you can type in); clicking one calls `onlink`,
-  //   which the drawer uses to open the link popover;
+  //   which the drawer uses to open the link popover (Cmd/Ctrl-click opens the link instead);
   // - highlights on each place the fixes changed (`needles`, found with highlightRanges, so
   //   they survive hand edits), tinted with the `tint` classes.
-  // CodeMirror is loaded on first use, so it isn't in the main bundle.
+  // `reveal` scrolls to a piece of text and briefly highlights its line (the drawer's locate
+  // buttons). CodeMirror is loaded on first use, so it isn't in the main bundle.
   import { onMount } from 'svelte';
   import type { EditorView as View } from '@codemirror/view';
   import type { StateEffectType, AnnotationType } from '@codemirror/state';
@@ -40,6 +41,21 @@
   // made from outside (so they don't count as the user typing).
   let setMarks: StateEffectType<Marks> | undefined;
   let external: AnnotationType<boolean> | undefined;
+  // Set once loaded: scrolls to and flashes the line at a position.
+  let flashAt: ((pos: number) => void) | undefined;
+
+  /** Scrolls to the first of `texts` found in the editor and flashes its line. Returns whether one was found. */
+  export function reveal(texts: string[]): boolean {
+    if (!view || !flashAt) return false;
+    const doc = view.state.doc.toString();
+    for (const t of texts) {
+      const at = t ? doc.indexOf(t) : -1;
+      if (at === -1) continue;
+      flashAt(at);
+      return true;
+    }
+    return false;
+  }
 
   onMount(() => {
     let gone = false;
@@ -52,11 +68,31 @@
       const marksEffect = setMarks;
       const externalTag = external;
 
+      // A short-lived highlight on one line; null clears it.
+      const flash = StateEffect.define<number | null>();
+      const flashed = StateField.define({
+        create: () => Decoration.none,
+        update(deco, tr) {
+          for (const e of tr.effects)
+            if (e.is(flash)) return e.value === null ? Decoration.none : Decoration.set([Decoration.line({ class: 'cm-flash' }).range(e.value)]);
+          return deco.map(tr.changes);
+        },
+        provide: (f) => EditorView.decorations.from(f),
+      });
+      let flashTimer: ReturnType<typeof setTimeout> | undefined;
+      flashAt = (pos) => {
+        if (!view) return;
+        const line = view.state.doc.lineAt(pos);
+        view.dispatch({ effects: [flash.of(line.from), EditorView.scrollIntoView(pos, { y: 'center' })], selection: { anchor: pos } });
+        clearTimeout(flashTimer);
+        flashTimer = setTimeout(() => view?.dispatch({ effects: flash.of(null) }), 1600);
+      };
+
       // Chips for links, then highlights for changes; `true` lets CodeMirror sort the ranges.
       const build = (doc: string, m: Marks) =>
         Decoration.set(
           [
-            ...urlsIn(doc).map((u) => Decoration.mark({ class: 'cm-link' }).range(u.start, u.end)),
+            ...urlsIn(doc).map((u) => Decoration.mark({ class: 'cm-link', attributes: { title: 'Click to change · ⌘/Ctrl-click to open' } }).range(u.start, u.end)),
             ...highlightRanges(doc, m.needles).map((r) => Decoration.mark({ class: m.tint }).range(r.start, r.end)),
           ],
           true,
@@ -83,6 +119,7 @@
             EditorView.contentAttributes.of({ 'aria-label': 'Fixed description', spellcheck: 'false' }),
             marks,
             decorations,
+            flashed,
             EditorView.updateListener.of((u) => {
               if (!u.docChanged || u.transactions.some((t) => t.annotation(externalTag))) return;
               value = u.state.doc.toString();
@@ -93,6 +130,10 @@
                 if (!(e.target as HTMLElement).closest('.cm-link')) return false;
                 const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
                 const link = pos === null ? undefined : urlsIn(v.state.doc.toString()).find((u) => pos >= u.start && pos <= u.end);
+                if (link && (e.metaKey || e.ctrlKey)) {
+                  window.open(link.url, '_blank', 'noopener,noreferrer');
+                  return true;
+                }
                 const at = link && v.coordsAtPos(link.start);
                 if (link && at) onlink({ url: link.url, from: link.start, to: link.end, left: at.left, top: at.top, bottom: at.bottom });
                 return false; // the caret still moves there, so the link can be typed in too
@@ -111,6 +152,11 @@
                 cursor: 'pointer',
               },
               '.cm-link:hover': { boxShadow: '0 0 0 1px var(--ring)' },
+              '.cm-flash': { animation: 'cm-flash 1.6s ease-out' },
+              '@keyframes cm-flash': {
+                from: { backgroundColor: 'color-mix(in oklab, var(--ring) 45%, transparent)' },
+                to: { backgroundColor: 'transparent' },
+              },
             }),
           ],
         }),

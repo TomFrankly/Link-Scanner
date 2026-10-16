@@ -16,6 +16,8 @@
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
   import Save from '@lucide/svelte/icons/save';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
+  import LocateFixed from '@lucide/svelte/icons/locate-fixed';
+  import type { Row } from '$lib/types';
   import SaveEditsDialog from './SaveEditsDialog.svelte';
   import DescriptionEditor, { type LinkClick } from './DescriptionEditor.svelte';
   import LinkPopover from './LinkPopover.svelte';
@@ -26,7 +28,7 @@
   import StatusBadge from './StatusBadge.svelte';
   import PlannedFix from './PlannedFix.svelte';
   import { api } from '$lib/api';
-  import { app, data, removeTextEdit, ui } from '$lib/store.svelte';
+  import { app, data, removeTextEdit, setFix, ui } from '$lib/store.svelte';
   import { applyFixes, FIXABLE, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
   import { applyTextEdits, editsFromHandEdit, splitLinkSwaps, type FoundEdit, type LinkSwap } from '$shared/textEdits';
 
@@ -188,7 +190,7 @@
   // Saving needs a base the edit can be traced back to, which the Original tab (YouTube's text,
   // before saved edits) isn't.
   const canSave = $derived(edited && mode !== 'original' && description !== null);
-  function startSave() {
+  async function startSave() {
     if (!editBase || !video) return;
     const edits: FoundEdit[] = [];
     const swaps: LinkSwap[] = [];
@@ -205,8 +207,48 @@
         } else if (!swaps.some((x) => x.from === s.from)) swaps.push(s);
       }
     }
-    if (edits.length || swaps.length) found = { edits, swaps };
-    else toast.info('Nothing to save: only spacing or blank lines changed.');
+    if (!edits.length && !swaps.length) return toast.info('Nothing to save: only spacing or blank lines changed.');
+    // A link used only in this video has nowhere else to go, so it's saved without asking.
+    const quick = swaps.filter((s) => onlyHere(s.from));
+    for (const s of quick) await quickFix(s.from, s.to, quick.length === 1);
+    const rest = swaps.filter((s) => !onlyHere(s.from));
+    if (edits.length || rest.length) found = { edits, swaps: rest };
+    else {
+      edited = false; // the generated text now includes the change
+      if (quick.length > 1) toast.success(`${quick.length} links changed`);
+    }
+  }
+
+  // ---- changing a link used only in this video ----
+  const onlyHere = (url: string) => (data.rows.find((r) => r.url === url)?.videos.length ?? 0) <= 1;
+  /**
+   * Saves a link change as a planned fix without asking where it applies. Kept in the scope of
+   * the plan that applies now (normally every channel). The toast's Undo puts the old plan back.
+   */
+  async function quickFix(from: string, to: string, notify = true) {
+    const scope = data.fixes.for(from, video?.channelId ?? '')?.channelId ?? '';
+    const prev = data.fixes.exact(from, scope);
+    const opts = { quiet: true, channelId: scope };
+    const ok = await (to ? setFix(from, 'replace', to, opts) : setFix(from, 'remove', undefined, opts));
+    if (ok && notify)
+      toast.success(to ? 'Link changed' : 'Link removed', {
+        duration: 8000, // long enough to reach Undo
+        action: {
+          label: 'Undo',
+          onClick: () => (prev ? setFix(from, prev.action, prev.replacement ?? undefined, opts) : setFix(from, 'clear', undefined, opts)),
+        },
+      });
+    return ok;
+  }
+
+  // ---- locating a link in the editor ----
+  let editor = $state<ReturnType<typeof DescriptionEditor>>();
+  /** Scrolls the editor to a link (or the replacement shown in its place) and flashes its line. */
+  function locate(r: Row) {
+    const fix = data.fixes.for(r.url, video?.channelId ?? '');
+    const texts = mode === 'original' ? [r.url] : [r.url, fix?.replacement ?? ''];
+    if (editor?.reveal(texts)) return;
+    toast.info(fix?.action === 'remove' && mode !== 'original' ? 'Its planned fix removes this link, so it isn’t in the text.' : 'This link isn’t in the text shown.');
   }
   function saved() {
     found = null;
@@ -239,7 +281,8 @@
       }
     }
     popLink = null;
-    found = { edits: [], swaps: [{ from, to, find, replace }] };
+    if (onlyHere(from)) quickFix(from, to);
+    else found = { edits: [], swaps: [{ from, to, find, replace }] };
   }
 
   const close = () => (ui.drawerVideoId = null);
@@ -308,7 +351,16 @@
                 <StatusBadge category={r.cls.category} />
                 <PlanFixButton row={r} />
               </div>
-              <div class="mt-1 font-mono text-xs break-all">{r.url}</div>
+              <div class="mt-1 flex items-start gap-1">
+                <a href={r.url} target="_blank" rel="noreferrer" class="min-w-0 flex-1 font-mono text-xs break-all hover:underline" title="Open in a new tab">{r.url}</a>
+                <button
+                  type="button"
+                  class="text-muted-foreground hover:text-foreground hover:bg-muted -my-0.5 shrink-0 rounded p-0.5 transition-colors duration-150"
+                  aria-label="Show in description"
+                  title="Show in description"
+                  onclick={() => locate(r)}><LocateFixed class="size-3.5" /></button
+                >
+              </div>
               <PlannedFix url={r.url} />
             </li>
           {/each}
@@ -369,7 +421,7 @@
         {:else}
           <!-- Links show as chips: click one to change it everywhere it's used. -->
           <div class="relative min-h-0 flex-1 overflow-hidden rounded-md border">
-            <DescriptionEditor bind:value={text} {needles} {tint} oninput={onInput} onlink={(l) => (popLink = l)} />
+            <DescriptionEditor bind:this={editor} bind:value={text} {needles} {tint} oninput={onInput} onlink={(l) => (popLink = l)} />
           </div>
         {/if}
       </div>

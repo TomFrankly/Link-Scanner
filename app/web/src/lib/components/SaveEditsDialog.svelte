@@ -43,7 +43,7 @@
   });
   const videosWith = (url: string) => data.rows.find((r) => r.url === url)?.videos ?? [];
   const inChannel = (url: string) => videosWith(url).filter((v) => v.channelId === channelId).length;
-  const videos = (n: number) => (n === 1 ? 'the 1 video' : `all ${n} videos`);
+  const videos = (n: number) => (n === 1 ? 'the 1 video that uses it' : `all ${n} videos that use it`);
 
   const titles = $derived(new Map((app.report?.videos ?? []).map((v) => [v.id, v.t])));
 
@@ -160,7 +160,7 @@
             <label class="flex cursor-pointer items-start gap-2 text-sm">
               <input type="radio" name="swap-{i}" class="accent-foreground mt-1" checked={swapScope[i] === 'all'} onchange={() => (swapScope[i] = 'all')} />
               <span>
-                {verb} this link in {videos(n)} that use it{nHere < n ? ', in every channel' : ''}
+                {verb} this link in {videos(n)}{nHere < n ? ', in every channel' : ''}
                 <span class="text-muted-foreground block text-xs">Saved as a planned fix, so it changes wherever the link appears, whatever text is around it.</span>
               </span>
             </label>

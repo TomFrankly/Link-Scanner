@@ -6,6 +6,7 @@
   //
   // `link` is what was clicked; `source` is the scanned link it stands for. They differ when the
   // chip shows a planned replacement, in which case editing it changes that plan.
+  import { tick } from 'svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import Trash from '@lucide/svelte/icons/trash-2';
   import { Button } from '$lib/components/ui/button';
@@ -26,7 +27,12 @@
   let box = $state<HTMLDivElement>();
   $effect(() => {
     value = link.url;
-    requestAnimationFrame(() => input?.select());
+    // Focus as soon as the new value is in the box (tick), so typing right after the click
+    // lands here, not in the editor, and replaces the old address.
+    tick().then(() => {
+      input?.focus();
+      input?.select();
+    });
   });
 
   const valid = $derived(/^https?:\/\/\S+\.\S+$/.test(value.trim()));
