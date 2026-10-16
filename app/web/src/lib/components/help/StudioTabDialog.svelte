@@ -71,12 +71,15 @@
 
       <section class="border-t pt-5">
         <h3 class="mb-1 font-medium">Other browsers, or if that doesn’t work: the Studio tab extension</h3>
-        <p class="text-muted-foreground mb-3">A small, optional extension that sends every Studio link from this app to the same tab.</p>
+        <p class="text-muted-foreground mb-3">
+          A small, optional extension that sends every Studio link from this app to the same tab: the one it opened itself, not a pane you set up. So if you use
+          Edge Split View, skip the extension (or turn it off), since it takes Studio links away from the linked pane.
+        </p>
 
         <h4 class="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">Install (Chrome, Arc, Edge, Brave)</h4>
         <ol class="text-muted-foreground list-decimal space-y-1.5 pl-5">
           <li><span class="text-foreground">Download it</span>, made for this site’s address, and unzip it.</li>
-          <li>Open <code class="text-foreground text-xs">chrome://extensions</code> (paste it in the address bar) and turn on <span class="text-foreground">Developer mode</span>.</li>
+          <li>Open <code class="text-foreground text-xs">chrome://extensions</code> (<code class="text-foreground text-xs">edge://extensions</code> in Edge; paste it in the address bar) and turn on <span class="text-foreground">Developer mode</span>.</li>
           <li>Click <span class="text-foreground">Load unpacked</span> and choose the unzipped <code class="text-foreground text-xs">link-checker-studio-tab</code> folder.</li>
           <li>Reload this page. Keep the folder: the browser loads the extension from it.</li>
         </ol>

@@ -55,9 +55,10 @@
 </script>
 
 <!-- It's placed where the link was on screen, so it closes when anything scrolls (the editor or
-     a pane; scroll events don't bubble, hence the capture listener). -->
+     a pane; scroll events don't bubble, hence the capture listener). Not its own address field,
+     though: a long address scrolls that field sideways when it's selected, typed or pasted. -->
 <svelte:window onpointerdown={outside} onkeydown={(e) => e.key === 'Escape' && (e.stopPropagation(), onclose())} />
-<svelte:document onscrollcapture={onclose} />
+<svelte:document onscrollcapture={(e) => !box?.contains(e.target as Node) && onclose()} />
 
 <div
   bind:this={box}
