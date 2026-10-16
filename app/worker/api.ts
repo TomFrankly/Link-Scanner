@@ -267,22 +267,23 @@ async function setFix(
 /** The workspace's saved hand edits to descriptions, oldest first (the order they apply in). */
 const textEditsQuery = (env: Env, wsId: string) =>
   env.DB.prepare(
-    'SELECT id, find, replace, videos, channel_id AS channelId, added_by AS addedBy, added_at AS addedAt FROM text_edits WHERE workspace_id = ?1 ORDER BY id',
+    'SELECT id, find, replace, videos, channel_id AS channelId, kind, added_by AS addedBy, added_at AS addedAt FROM text_edits WHERE workspace_id = ?1 ORDER BY id',
   ).bind(wsId);
-type EditRow = { id: number; find: string; replace: string; videos: string | null; channelId: string | null; addedBy: string; addedAt: string };
+type EditRow = { id: number; find: string; replace: string; videos: string | null; channelId: string | null; kind: string; addedBy: string; addedAt: string };
 /** `videos` is stored as JSON text. */
 const parseEdits = (rows: EditRow[]) => rows.map((r) => ({ ...r, videos: r.videos === null ? null : (JSON.parse(r.videos) as string[]) }));
 const listEdits = async (env: Env, wsId: string) => ({ textEdits: parseEdits((await textEditsQuery(env, wsId).all<EditRow>()).results) });
 
 /**
- * Saves the rules found in one hand edit (see shared/textEdits.ts editsFromHandEdit). Each
- * needs `find` lines with some text, a `replace` (empty deletes the lines), and `videos`:
+ * Saves the rules found in one hand edit (see shared/textEdits.ts editsFromHandEdit), or one
+ * quick edit. Each needs `find` with some text, a `replace` (empty deletes it), and `videos`:
  * a list of video ids, or null for every video where `find` appears. `channelId` limits a
- * rule to one channel's videos.
+ * rule to one channel's videos; `kind` is 'lines' (the default, whole lines) or 'text' (exact
+ * text, matched anywhere).
  */
 async function addTextEdits(env: Env, ws: WorkspaceRow, me: Me, b: { edits?: unknown }) {
   if (!Array.isArray(b.edits) || !b.edits.length || b.edits.length > MAX_EDITS_PER_SAVE) throw new HttpError(400, 'Nothing to save');
-  const edits = (b.edits as { find?: unknown; replace?: unknown; videos?: unknown; channelId?: unknown }[]).map((e) => {
+  const edits = (b.edits as { find?: unknown; replace?: unknown; videos?: unknown; channelId?: unknown; kind?: unknown }[]).map((e) => {
     const find = str(e.find);
     const replace = str(e.replace);
     if (!find.trim() || find.length > MAX_EDIT_TEXT || replace.length > MAX_EDIT_TEXT) throw new HttpError(400, 'Each change needs some text, up to 5,000 characters');
@@ -292,7 +293,8 @@ async function addTextEdits(env: Env, ws: WorkspaceRow, me: Me, b: { edits?: unk
       if (!ok) throw new HttpError(400, 'Choose at least one video');
       videos = JSON.stringify([...new Set(e.videos as string[])]);
     }
-    return { find, replace, videos, channelId: e.channelId };
+    if (e.kind !== undefined && e.kind !== 'lines' && e.kind !== 'text') throw new HttpError(400, 'Unknown kind of edit');
+    return { find, replace, videos, channelId: e.channelId, kind: e.kind === 'text' ? 'text' : 'lines' };
   });
   const channels = await Promise.all(edits.map((e) => channelScope(env, ws, e.channelId)));
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM text_edits WHERE workspace_id = ?').bind(ws.id).first<number>('n');
@@ -301,8 +303,8 @@ async function addTextEdits(env: Env, ws: WorkspaceRow, me: Me, b: { edits?: unk
   await env.DB.batch(
     edits.map((e, i) =>
       env.DB.prepare(
-        'INSERT INTO text_edits (workspace_id, find, replace, videos, channel_id, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).bind(ws.id, e.find, e.replace, e.videos, channels[i] || null, me.email, at),
+        'INSERT INTO text_edits (workspace_id, find, replace, videos, channel_id, kind, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      ).bind(ws.id, e.find, e.replace, e.videos, channels[i] || null, e.kind, me.email, at),
     ),
   );
   return listEdits(env, ws.id);

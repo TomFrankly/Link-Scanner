@@ -122,7 +122,7 @@ function descriptionRows(
       }),
     );
     const edited = desc?.d != null ? applyTextEdits(desc.d, textEdits, v.id, v.channelId) : null;
-    const fixed = edited && problems.length ? applyFixes(edited.text, problems, decisions) : null;
+    const fixed = edited && problems.length ? applyFixes(edited.text, problems, decisions, { mark: true }) : null;
     const text = edited === null ? 'Not saved yet. Run a full scan to fetch descriptions.' : (fixed?.text ?? edited.text);
     return [
       safe(v.title),

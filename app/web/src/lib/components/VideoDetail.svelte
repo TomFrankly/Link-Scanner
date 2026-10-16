@@ -134,6 +134,8 @@
                   {#if r.cls.detail}<div class="text-muted-foreground">{r.cls.detail}</div>{/if}
                   <PlannedFix url={r.url} />
                 </div>
+                <!-- Locate sits last, so a wider Plan fix / Change fix label grows leftward and never moves it. -->
+                <PlanFixButton row={r} />
                 <Hint text="Show in description">
                   {#snippet children(tip)}
                     <button
@@ -145,7 +147,6 @@
                     >
                   {/snippet}
                 </Hint>
-                <PlanFixButton row={r} />
               </div>
             </li>
           {/each}

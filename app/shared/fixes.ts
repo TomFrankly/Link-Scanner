@@ -34,7 +34,7 @@ export const FIXABLE: Category[] = ['broken', 'parked', 'domain-changed', 'desti
 /** Fixable categories where the link still works but lands somewhere new. */
 export const REDIRECTS: Category[] = ['domain-changed', 'destination-changed', 'homepage'];
 
-/** Short reason shown in a FIX THIS marker, e.g. "redirects to notion.com". */
+/** Short reason for a problem link, e.g. "redirects to notion.com": the editor's flag, the export's FIX THIS marker. */
 export function reasonFor(p: Problem): string {
   if (p.category === 'parked') return 'parked domain';
   if (p.category === 'homepage') return 'goes to homepage';
@@ -143,15 +143,17 @@ export interface Decision {
 }
 
 /**
- * Applies the workspace's per-link decisions: `replace` swaps in the new URL, `remove` deletes
- * the link (tidied like removeLinks), and links nobody has decided on get the FIX THIS marker.
+ * Applies the workspace's per-link decisions: `replace` swaps in the new URL, and `remove`
+ * deletes the link (tidied like removeLinks). Links nobody has decided on stay as they are (the
+ * editor flags them without changing the text), or with `mark` get the FIX THIS marker, as in
+ * the Excel export, where there's no other way to flag them.
  */
-export function applyFixes(desc: string, problems: Problem[], decisions: Record<string, Decision>): FixResult {
+export function applyFixes(desc: string, problems: Problem[], decisions: Record<string, Decision>, { mark = false } = {}): FixResult {
   const lines = rewriteLines(desc, problems, (p) => {
     const d = Object.hasOwn(decisions, p.url) ? decisions[p.url] : undefined;
     if (d?.action === 'remove') return '';
     if (d?.action === 'replace' && d.replacement) return d.replacement;
-    return marker(p);
+    return mark ? marker(p) : null;
   });
   return tidy(desc, lines);
 }

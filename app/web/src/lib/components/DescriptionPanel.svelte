@@ -13,7 +13,9 @@
   // The workspace's saved text edits (shared/textEdits.ts) run first, then the link fixes
   // (shared/fixes.ts). Hand edits typed here can be saved as new text edits, optionally for
   // every other video with the same lines (SaveEditsDialog). Nothing changes on YouTube: the
-  // user copies the result into YouTube Studio.
+  // user copies the result into YouTube Studio. Problem links without a planned fix are flagged in
+  // the editor (not in the text), and selecting text opens the quick edit (QuickEdit), which
+  // saves an exact-text replacement for this video, its channel, or every video with that text.
   import { toast } from 'svelte-sonner';
   import X from '@lucide/svelte/icons/x';
   import Copy from '@lucide/svelte/icons/copy';
@@ -26,8 +28,9 @@
   import PlanFixButton from './PlanFixButton.svelte';
   import type { Row, VideoRef } from '$lib/types';
   import SaveEditsDialog from './SaveEditsDialog.svelte';
-  import DescriptionEditor, { type LinkClick } from './DescriptionEditor.svelte';
+  import DescriptionEditor, { type Flag, type LinkClick, type TextSelection } from './DescriptionEditor.svelte';
   import LinkPopover from './LinkPopover.svelte';
+  import QuickEdit from './QuickEdit.svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import AppWindow from '@lucide/svelte/icons/app-window';
   import { Button } from '$lib/components/ui/button';
@@ -39,7 +42,7 @@
   import { app, data, layout, removeTextEdit, setFix, ui } from '$lib/store.svelte';
   import { hasStudioTab, openStudio } from '$lib/studio';
   import Hint from './Hint.svelte';
-  import { applyFixes, FIXABLE, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
+  import { applyFixes, FIXABLE, reasonFor, REDIRECTS, removeLinks, updateRedirects, urlsIn, type FixResult, type Problem } from '$shared/fixes';
   import { applyTextEdits, editsFromHandEdit, splitLinkSwaps, type FoundEdit, type LinkSwap } from '$shared/textEdits';
 
   let {
@@ -65,7 +68,7 @@
   );
   // Just the broken or redirected ones, for the "Remove all" and "Update all redirects" tabs.
   const problemOnly = $derived(problems.filter((p) => FIXABLE.includes(p.category)));
-  // The planned fix for each of those links, keyed by URL; links without one get a FIX THIS marker.
+  // The planned fix for each of those links, keyed by URL; links without one are flagged.
   const decisions = $derived(
     Object.fromEntries(
       links.flatMap((r) => {
@@ -135,11 +138,23 @@
     mode === 'remove' ? 'bg-[#d03b3b]/15 dark:bg-[#d03b3b]/30' : mode === 'redirects' ? 'bg-[#0ca30c]/15 dark:bg-[#0ca30c]/30' : 'bg-[#fab219]/30',
   );
 
+  // Problem links still in the text with nothing planned: outlined in the editor, with a tag. Not
+  // in "Remove all" (they're gone); in Original, every problem link.
+  const flagged = $derived<Flag[]>(
+    (mode === 'remove' ? [] : problemOnly.filter((p) => mode !== 'apply' || !Object.hasOwn(decisions, p.url))).map((p) => ({
+      url: p.url,
+      reason: reasonFor(p),
+      tone: p.category === 'broken' || p.category === 'parked' ? 'red' : 'amber',
+    })),
+  );
+
   async function copy(open = false) {
     try {
       await navigator.clipboard.writeText(text);
       if (open) openStudio(video.id);
-      toast.success(open ? 'Copied. Paste it into the description in Studio.' : 'Description copied. Paste it into YouTube Studio.');
+      const left = flagged.filter((f) => urlsIn(text).some((u) => u.url === f.url)).length;
+      if (left && mode !== 'original') toast.warning(`Copied, but ${left} problem link${left === 1 ? ' still has' : 's still have'} no planned fix.`);
+      else toast.success(open ? 'Copied. Paste it into the description in Studio.' : 'Description copied. Paste it into YouTube Studio.');
     } catch {
       toast.error('Could not copy. Select the text and copy it manually.');
     }
@@ -259,6 +274,16 @@
     else found = { edits: [], swaps: [{ from, to, find, replace }] };
   }
 
+  // ---- the quick edit for selected text ----
+  let sel = $state<TextSelection | null>(null);
+  const selLink = $derived(sel ? sourceOf(sel.text.trim()) : null);
+  function quickSaved(find: string, replace: string, videos: number) {
+    sel = null;
+    // With unsaved hand edits the text no longer follows the saved edits, so change it here too.
+    if (edited) text = text.split(find).join(replace);
+    toast.success(`Replaced in ${videos === 1 ? 'this video' : `${videos} videos`}. It applies here and in the Excel export.`);
+  }
+
   // A saved edit's first changed line, for the list under the editor.
   const preview = (find: string, replace: string) => replace.split('\n').find((l) => l.trim() && !find.split('\n').includes(l)) ?? `Deleted: ${find.split('\n').find((l) => l.trim())}`;
 
@@ -272,7 +297,7 @@
 
   const MODES = $derived([
     // [mode, short label (the menu button), full label, what it does]
-    ['apply', 'Planned fixes', 'Apply planned fixes', 'Your plans; links without one get a FIX THIS marker'],
+    ['apply', 'Planned fixes', 'Apply planned fixes', 'Your plans; links without one are flagged'],
     ['remove', 'Remove all', 'Remove all problem links', 'Every broken or redirected link taken out'],
     ...(hasRedirects ? [['redirects', 'Update redirects', 'Update all redirects', 'Each redirect swapped for where it lands now']] : []),
     ['original', 'Original', 'Original', 'The description as it is on YouTube'],
@@ -291,22 +316,21 @@
     <ul class="divide-y border-b">
       {#each allLinks as r (r.url)}
         <li class="px-3 py-2">
-          <div class="flex items-center justify-between gap-2">
+          <!-- Locate sits last, so a wider Plan fix / Change fix label grows leftward and never moves it. -->
+          <div class="flex items-center gap-1">
             <StatusBadge category={r.cls.category} />
-            <PlanFixButton row={r} />
-          </div>
-          <div class="mt-1 flex items-start gap-1">
-            <a href={r.url} target="_blank" rel="noreferrer" class="min-w-0 flex-1 font-mono text-xs break-all hover:underline" title="Open in a new tab">{r.url}</a>
+            <span class="ml-auto"><PlanFixButton row={r} /></span>
             <Hint text="Show in description">
               {#snippet children(tip)}<button
                 {...tip}
                 type="button"
-                class="text-muted-foreground hover:text-foreground hover:bg-muted -my-0.5 shrink-0 rounded p-0.5 transition-colors duration-150"
+                class="text-muted-foreground hover:text-foreground hover:bg-muted shrink-0 rounded p-1 transition-colors duration-150"
                 aria-label="Show in description"
                 onclick={() => locate(r.url)}><LocateFixed class="size-3.5" /></button
               >{/snippet}
             </Hint>
           </div>
+          <a href={r.url} target="_blank" rel="noreferrer" class="mt-1 block font-mono text-xs break-all hover:underline">{r.url}</a>
           <PlannedFix url={r.url} />
         </li>
       {/each}
@@ -318,8 +342,8 @@
           <li class="flex items-start gap-2 px-3 py-2">
             <PencilLine class="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
             <div class="min-w-0 flex-1">
-              <div class="truncate font-mono text-xs" title={e.replace || e.find}>{preview(e.find, e.replace)}</div>
-              <div class="text-muted-foreground text-xs">{e.videos ? `${e.videos.length} video${e.videos.length === 1 ? '' : 's'}` : 'Every video with these lines'}</div>
+              <div class="truncate font-mono text-xs" title={e.replace || e.find}>{e.kind === 'text' ? `“${e.find}” → “${e.replace}”` : preview(e.find, e.replace)}</div>
+              <div class="text-muted-foreground text-xs">{e.videos ? `${e.videos.length} video${e.videos.length === 1 ? '' : 's'}` : e.kind === 'text' ? 'Every video with this text' : 'Every video with these lines'}</div>
             </div>
             <Hint text="Remove this saved edit from every video it applies to">
               {#snippet children(tip)}<Button {...tip} size="icon-xs" variant="ghost" aria-label="Remove saved edit" onclick={() => removeTextEdit(e.id)}><X /></Button>{/snippet}
@@ -408,7 +432,17 @@
     {:else}
       <!-- Links show as chips: click one to change it. The editor scrolls inside this box. -->
       <div class="min-h-0 flex-1">
-        <DescriptionEditor bind:this={editor} bind:ready={editorReady} bind:value={text} {needles} {tint} oninput={onInput} onlink={(l) => (popLink = l)} />
+        <DescriptionEditor
+          bind:this={editor}
+          bind:ready={editorReady}
+          bind:value={text}
+          {needles}
+          {tint}
+          {flagged}
+          oninput={onInput}
+          onlink={(l) => ((sel = null), (popLink = l))}
+          onselect={(s) => (sel = s)}
+        />
       </div>
     {/if}
   </div>
@@ -417,4 +451,16 @@
 <SaveEditsDialog changes={found} videoId={video.id} channelId={video.channelId} onclose={() => (found = null)} onsaved={saved} />
 {#if popLink}
   <LinkPopover link={popLink} source={sourceOf(popLink.url)} onchange={linkChange} onclose={() => (popLink = null)} />
+{:else if sel && source && mode !== 'original'}
+  {@const s = sel}
+  <QuickEdit
+    sel={s}
+    videoId={video.id}
+    channelId={video.channelId}
+    sourceText={source.text}
+    isLink={!!selLink}
+    onlink={() => ((sel = null), (popLink = { url: s.text.trim(), from: s.from, to: s.to, left: s.left, top: s.top, bottom: s.bottom }))}
+    onclose={() => (sel = null)}
+    onsaved={quickSaved}
+  />
 {/if}

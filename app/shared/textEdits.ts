@@ -5,10 +5,13 @@
 // "these lines become those lines". The app then offers to apply the same rule to every
 // other video whose description has the same lines, like a footer or sponsor block.
 //
-// Rules match whole lines, never part of a line, so changing "2025" in one sentence can't
-// change every "2025" everywhere. Spacing differences (extra spaces, leading or trailing
-// whitespace) don't stop a match. Rules run on the description as YouTube has it, oldest
-// rule first, and the planned link fixes (fixes.ts) run after them.
+// Rules from a hand edit match whole lines, never part of a line, so changing "2025" in one
+// sentence can't change every "2025" everywhere. Spacing differences (extra spaces, leading or
+// trailing whitespace) don't stop a match. The other kind, `kind: 'text'`, comes from the
+// editor's quick edit, where someone selects exact text and says what to put instead: it
+// replaces that exact text wherever it appears, inside lines too, because that's what was asked.
+// Rules run on the description as YouTube has it, oldest rule first, and the planned link fixes
+// (fixes.ts) run after them.
 //
 // A change that only swaps one link for another is better saved as a planned link fix, which
 // replaces the link in every video whatever text surrounds it; splitLinkSwaps finds those.
@@ -27,14 +30,19 @@ export interface TextEdit {
   videos: string[] | null;
   /** Limits it to one channel's videos; null for every channel. */
   channelId?: string | null;
+  /** 'lines' (the default): `find` is whole lines. 'text': `find` is exact text, matched anywhere. */
+  kind?: EditKind;
   addedBy: string;
   addedAt: string;
 }
 
-/** A change found in a hand edit, before it's saved. */
+export type EditKind = 'lines' | 'text';
+
+/** A change found in a hand edit (or made with the quick edit), before it's saved. */
 export interface FoundEdit {
   find: string;
   replace: string;
+  kind?: EditKind;
 }
 
 /** Lines compare equal when they match after trimming and collapsing runs of whitespace. */
@@ -54,8 +62,9 @@ function matchAt(lines: string[], find: string[], i: number) {
   return true;
 }
 
-/** Whether a description contains `find` as whole lines. */
-export function contains(desc: string, find: string): boolean {
+/** Whether a description contains `find`: as whole lines, or for a 'text' rule anywhere. */
+export function contains(desc: string, find: string, kind: EditKind = 'lines'): boolean {
+  if (kind === 'text') return !!find && desc.includes(find);
   const lines = desc.split('\n');
   const f = toLines(find);
   if (!f.length) return false;
@@ -74,13 +83,29 @@ export interface EditResult {
 }
 
 /** Applies every rule that covers the video, in order, replacing each place its lines appear. */
-export function applyTextEdits(desc: string, edits: (Scope & Pick<TextEdit, 'find' | 'replace'>)[], videoId: string, channelId: string): EditResult {
-  const lines = desc.split('\n');
+export function applyTextEdits(
+  desc: string,
+  edits: (Scope & Pick<TextEdit, 'find' | 'replace' | 'kind'>)[],
+  videoId: string,
+  channelId: string,
+): EditResult {
+  let lines = desc.split('\n');
   let changed = 0;
   const added = new Set<string>();
   const used: number[] = [];
   edits.forEach((e, n) => {
     if (!appliesTo(e, videoId, channelId)) return;
+    if (e.kind === 'text') {
+      // Exact text, anywhere; split and join never matches inside its own replacement.
+      const text = lines.join('\n');
+      const hits = e.find ? text.split(e.find).length - 1 : 0;
+      if (!hits) return;
+      lines = text.split(e.find).join(e.replace).split('\n');
+      changed += hits;
+      used.push(n);
+      if (e.replace.trim()) added.add(e.replace);
+      return;
+    }
     const f = toLines(e.find);
     if (!f.length) return;
     const r = toLines(e.replace);
@@ -158,9 +183,9 @@ function mergeAcrossBlanks(hunks: Hunk[], a: string[]): Hunk[] {
   return out;
 }
 
-// The editor marks links without a planned fix as `[FIX THIS: url (reason)]` (fixes.ts). An edit
-// near one keeps the marker in the edited line, so it's turned back into the plain link before
-// saving: otherwise the marker text would end up in exported descriptions.
+// Older versions of the editor marked links without a planned fix as `[FIX THIS: url (reason)]`
+// (fixes.ts; the Excel export still does). A marker typed or pasted back into an edit is turned
+// back into the plain link before saving, so it can't end up in descriptions.
 const MARKER_RE = /\[FIX THIS: (https?:\/\/\S+?) \([^)]*\)\]/g;
 const unmark = (s: string) => s.replace(MARKER_RE, '$1');
 

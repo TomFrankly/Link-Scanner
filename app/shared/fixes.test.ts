@@ -79,10 +79,15 @@ test('no-op when nothing matches', () => {
 
 test('applyFixes mixes replace, remove and markers in one description', () => {
   const desc = ['Gear: https://a.com/x', '👉 https://old.com/p', '', 'Shop https://shop.com/item and https://a.com/x.'].join('\n');
-  const r = applyFixes(desc, [broken, moved, home], {
-    'https://a.com/x': { action: 'replace', replacement: 'https://new.com/gear' },
-    'https://old.com/p': { action: 'remove' },
-  });
+  const r = applyFixes(
+    desc,
+    [broken, moved, home],
+    {
+      'https://a.com/x': { action: 'replace', replacement: 'https://new.com/gear' },
+      'https://old.com/p': { action: 'remove' },
+    },
+    { mark: true },
+  );
   assert.equal(r.text, ['Gear: https://new.com/gear', '', 'Shop [FIX THIS: https://shop.com/item (goes to homepage)] and https://new.com/gear.'].join('\n'));
   assert.equal(r.changed, 4);
   assert.equal(r.parts.map((p) => p.text).join(''), r.text);
@@ -111,9 +116,16 @@ test('applyFixes with a replacement that is a prefix of another URL in the text'
 
 test('applyFixes with no decisions matches markForFixing, and a replace without a URL falls back to the marker', () => {
   const desc = 'Gear: https://a.com/x\nNotes: https://old.com/p';
-  assert.equal(applyFixes(desc, [broken, moved], {}).text, markForFixing(desc, [broken, moved]).text);
-  const r = applyFixes(desc, [broken], { 'https://a.com/x': { action: 'replace', replacement: null } });
+  assert.equal(applyFixes(desc, [broken, moved], {}, { mark: true }).text, markForFixing(desc, [broken, moved]).text);
+  const r = applyFixes(desc, [broken], { 'https://a.com/x': { action: 'replace', replacement: null } }, { mark: true });
   assert.equal(r.text, markForFixing(desc, [broken]).text);
+});
+
+test('applyFixes without `mark` leaves undecided links as they are', () => {
+  const desc = 'Gear: https://a.com/x\nNotes: https://old.com/p';
+  const r = applyFixes(desc, [broken, moved], { 'https://old.com/p': { action: 'replace', replacement: 'https://www.notion.com/p' } });
+  assert.equal(r.text, 'Gear: https://a.com/x\nNotes: https://www.notion.com/p');
+  assert.equal(r.changed, 1);
 });
 
 test('applyFixes removal matches removeLinks', () => {

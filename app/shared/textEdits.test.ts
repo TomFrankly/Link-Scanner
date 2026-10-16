@@ -87,7 +87,7 @@ test('maps edits through link fixes back to the source text', () => {
     { url: 'https://b.example/y', category: 'broken' },
   ];
   // The first link is removed (its line is dropped); the second has no plan, so it's marked.
-  const shown = applyFixes(src, problems, { 'https://a.example/x': { action: 'remove' } });
+  const shown = applyFixes(src, problems, { 'https://a.example/x': { action: 'remove' } }, { mark: true });
   assert.equal(shown.text, 'Gear:\nSponsor: Old\n[FIX THIS: https://b.example/y (broken)]');
   const edited = 'Gear:\nSponsor: New\n[FIX THIS: https://b.example/y (broken)] (old)';
   assert.deepEqual(editsFromHandEdit(src, shown, edited), [
@@ -122,4 +122,21 @@ test('adding or removing a link is not a swap', () => {
 test('only the URLs that changed are swapped, keeping trailing punctuation out', () => {
   const r = splitLinkSwaps({ find: 'See https://a.example/x, and https://b.example.', replace: 'See https://a.example/x, and https://c.example/new.' });
   assert.deepEqual(r.swaps.map((s) => [s.from, s.to]), [['https://b.example', 'https://c.example/new']]);
+});
+
+test('a text rule replaces exact text anywhere, scoped like line rules', () => {
+  const desc = 'Use code TOM10 for 10% off.\nTOM10 works on the app too.';
+  const rule = { find: 'TOM10', replace: 'FRANK15', kind: 'text' as const, videos: null, channelId: null };
+  const r = applyTextEdits(desc, [rule], 'v1', 'c1');
+  assert.equal(r.text, 'Use code FRANK15 for 10% off.\nFRANK15 works on the app too.');
+  assert.equal(r.changed, 2);
+  assert.deepEqual(r.added, ['FRANK15']);
+  assert.equal(applyTextEdits(desc, [{ ...rule, channelId: 'c2' }], 'v1', 'c1').changed, 0);
+  assert.ok(contains(desc, 'code TOM10', 'text'));
+  assert.ok(!contains(desc, 'code TOM10'));
+});
+
+test('a text rule never matches inside its own replacement', () => {
+  const r = applyTextEdits('ab', [{ find: 'a', replace: 'aa', kind: 'text', videos: null }], 'v', 'c');
+  assert.equal(r.text, 'aab');
 });
