@@ -2,6 +2,7 @@
 // screens work with (built in store.svelte.ts). Types shared with the Worker live in shared/.
 import type { Classified, LinkResult } from '$shared/core';
 import type { RuleRow } from '$shared/rules';
+import type { TextEdit } from '$shared/textEdits';
 
 export type Role = 'owner' | 'member' | 'admin';
 
@@ -93,6 +94,8 @@ export interface Report extends ScanState {
   links: ApiLink[];
   rules: RuleRow[];
   fixes: LinkFix[];
+  /** Saved hand edits to descriptions, oldest first. */
+  textEdits: TextEdit[];
   /** The app-wide default rules, listed on the Exceptions page so they can be turned off. */
   defaults: { accepted: [string, string][]; redirectors: string[] };
   estimates: Estimates;

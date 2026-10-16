@@ -71,7 +71,7 @@
     {
       Icon: Users,
       title: 'What’s shared and what’s private',
-      text: 'A link’s check result is shared between workspaces, since it’s a public link on a public video and checking it once saves everyone time. Your channels, teammates, exception rules and planned fixes stay private to your workspace.',
+      text: 'A link’s check result is shared between workspaces, since it’s a public link on a public video and checking it once saves everyone time. Your channels, teammates, exception rules, planned fixes and saved edits stay private to your workspace.',
     },
     {
       Icon: Gauge,

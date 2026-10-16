@@ -67,7 +67,7 @@ async function startServer() {
   throw new Error('The demo server did not start');
 }
 
-/** Puts the seeded workspace back to its starting state between clips (clips add rules and fixes). */
+/** Puts the seeded workspace back to its starting state between clips (clips add rules, fixes and edits). */
 async function resetWorkspace() {
   const members = await (await fetch(`${ORIGIN}/api/w/demo-ws/members`)).json();
   for (const m of members.members ?? members)
@@ -80,6 +80,7 @@ async function resetWorkspace() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ url: fix.url, action: 'clear' }),
     });
+  for (const edit of report.textEdits ?? []) await fetch(`${ORIGIN}/api/w/demo-ws/text-edits/${edit.id}`, { method: 'DELETE' });
 }
 
 // ---------- in-page helpers: cursor and camera ----------

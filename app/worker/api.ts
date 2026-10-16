@@ -9,7 +9,7 @@
 //           allowed_owners list. Gets one workspace on first sign-in. Can rename it and
 //           invite or remove members. Losing owner permission means losing access to it.
 //   member  invited by an owner. Can view the report, run scans within the daily limits,
-//           add/remove channels, and edit rules and link fixes. Can't manage members.
+//           add/remove channels, and edit rules, link fixes and text edits. Can't manage members.
 // Signing in through Access alone grants nothing: someone who is neither an owner nor
 // invited only sees an empty /api/me.
 //
@@ -36,6 +36,12 @@ const MAX_WORKSPACE_NAME = 80;
 const MAX_RULE_NOTE = 500;
 const MAX_OWNER_NOTE = 300;
 const MAX_REPLACEMENT_URL = 2000;
+// Text edits (shared/textEdits.ts). YouTube caps a description at 5,000 characters.
+const MAX_EDIT_TEXT = 5000;
+const MAX_EDITS_PER_SAVE = 20;
+const MAX_EDITS_PER_WORKSPACE = 500;
+const MAX_EDIT_VIDEOS = 20000;
+const VIDEO_ID_RE = /^[\w-]{11}$/;
 // Ceilings for limits the admin sets per workspace.
 const MAX_DAILY_FULL_SCANS = 100;
 const MAX_DAILY_RECHECKS = 500;
@@ -143,13 +149,13 @@ const canManageMembers = (role: Role) => role === 'owner' || role === 'admin';
 
 /**
  * Everything the report page needs in one response: channels, videos, links and their
- * results, rules, fixes, estimates and scan state. Classification happens in the browser.
+ * results, rules, link fixes, text edits, estimates and scan state. Classification happens in the browser.
  * Side effect: may spend YouTube units backfilling missing channel thumbnails.
  */
 async function report(env: Env, ws: WorkspaceRow, role: Role) {
   // Limits a videos query to this workspace's channels; ?1 is the workspace id.
   const inWs = 'JOIN workspace_channels wc ON wc.channel_id = v.channel_id WHERE wc.workspace_id = ?1';
-  const [channels, videos, videoLinks, links, rules, fixes] = await env.DB.batch([
+  const [channels, videos, videoLinks, links, rules, fixes, edits] = await env.DB.batch([
     env.DB.prepare(
       'SELECT c.id, c.title, c.handle, c.thumbnail, c.video_count AS videoCount, c.fetched_at AS fetchedAt FROM channels c JOIN workspace_channels wc ON wc.channel_id = c.id WHERE wc.workspace_id = ?1 ORDER BY c.title',
     ).bind(ws.id),
@@ -163,6 +169,7 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
       'SELECT id, type, value, value2, note, added_by AS addedBy, added_at AS addedAt FROM rules WHERE workspace_id = ?1 ORDER BY id',
     ).bind(ws.id),
     fixesQuery(env, ws.id),
+    textEditsQuery(env, ws.id),
   ]);
   // Channels added before thumbnails were stored (thumbnail NULL) get theirs once, on the next
   // report load. A channel YouTube has no thumbnail for, or no longer knows, is stored as ''
@@ -191,6 +198,7 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
     links: links!.results, // `chain` stays a JSON string; the browser parses it
     rules: rules!.results,
     fixes: fixes!.results,
+    textEdits: parseEdits(edits!.results as EditRow[]),
     defaults: appDefaults(env.EXTRA_ACCEPTED_REDIRECTS), // built-in plus this deployment's extras
     estimates: await estimates(env, ws.id),
     ...(await scanState(env, ws)),
@@ -238,6 +246,48 @@ async function setFix(
       .run();
   }
   return { fixes: (await fixesQuery(env, ws.id).all()).results };
+}
+
+/** The workspace's saved hand edits to descriptions, oldest first (the order they apply in). */
+const textEditsQuery = (env: Env, wsId: string) =>
+  env.DB.prepare(
+    'SELECT id, find, replace, videos, added_by AS addedBy, added_at AS addedAt FROM text_edits WHERE workspace_id = ?1 ORDER BY id',
+  ).bind(wsId);
+type EditRow = { id: number; find: string; replace: string; videos: string | null; addedBy: string; addedAt: string };
+/** `videos` is stored as JSON text. */
+const parseEdits = (rows: EditRow[]) => rows.map((r) => ({ ...r, videos: r.videos === null ? null : (JSON.parse(r.videos) as string[]) }));
+const listEdits = async (env: Env, wsId: string) => ({ textEdits: parseEdits((await textEditsQuery(env, wsId).all<EditRow>()).results) });
+
+/**
+ * Saves the rules found in one hand edit (see shared/textEdits.ts editsFromHandEdit). Each
+ * needs `find` lines with some text, a `replace` (empty deletes the lines), and `videos`:
+ * a list of video ids, or null for every video where `find` appears.
+ */
+async function addTextEdits(env: Env, ws: WorkspaceRow, me: Me, b: { edits?: unknown }) {
+  if (!Array.isArray(b.edits) || !b.edits.length || b.edits.length > MAX_EDITS_PER_SAVE) throw new HttpError(400, 'Nothing to save');
+  const edits = b.edits.map((e: { find?: unknown; replace?: unknown; videos?: unknown }) => {
+    const find = str(e.find);
+    const replace = str(e.replace);
+    if (!find.trim() || find.length > MAX_EDIT_TEXT || replace.length > MAX_EDIT_TEXT) throw new HttpError(400, 'Each change needs some text, up to 5,000 characters');
+    let videos: string | null = null;
+    if (e.videos !== null) {
+      const ok = Array.isArray(e.videos) && e.videos.length > 0 && e.videos.length <= MAX_EDIT_VIDEOS && e.videos.every((v) => typeof v === 'string' && VIDEO_ID_RE.test(v));
+      if (!ok) throw new HttpError(400, 'Choose at least one video');
+      videos = JSON.stringify([...new Set(e.videos as string[])]);
+    }
+    return { find, replace, videos };
+  });
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM text_edits WHERE workspace_id = ?').bind(ws.id).first<number>('n');
+  if ((count ?? 0) + edits.length > MAX_EDITS_PER_WORKSPACE) throw new HttpError(400, `A workspace can keep up to ${MAX_EDITS_PER_WORKSPACE} saved edits. Remove some first.`);
+  const at = now();
+  await env.DB.batch(
+    edits.map((e) =>
+      env.DB.prepare('INSERT INTO text_edits (workspace_id, find, replace, videos, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        ws.id, e.find, e.replace, e.videos, me.email, at,
+      ),
+    ),
+  );
+  return listEdits(env, ws.id);
 }
 
 /** The latest scan plus today's usage against the workspace's limits. */
@@ -447,6 +497,11 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
       }
       if (sub === 'descriptions' && method === 'GET') return json(await descriptions(env, ws));
       if (sub === 'fixes' && method === 'POST') return json(await setFix(env, ws, me, await body(req)));
+      if (sub === 'text-edits' && !seg[3] && method === 'POST') return json(await addTextEdits(env, ws, me, await body(req)));
+      if (sub === 'text-edits' && seg[3] && method === 'DELETE') {
+        await env.DB.prepare('DELETE FROM text_edits WHERE workspace_id = ? AND id = ?').bind(ws.id, Number(seg[3])).run();
+        return json(await listEdits(env, ws.id));
+      }
       if (sub === 'rules' && method === 'POST') return json(await addRule(env, ws, me, await body(req)));
       if (sub === 'rules' && seg[3] && method === 'DELETE') {
         await env.DB.prepare('DELETE FROM rules WHERE workspace_id = ? AND id = ?').bind(ws.id, Number(seg[3])).run();

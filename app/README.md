@@ -11,6 +11,7 @@ Scans the public video descriptions of YouTube channels and flags links that are
   - `check` messages follow each link's redirect chain, 6 links per message, grouped by host and spaced per host.
 - **Shared results:** a link's check result is stored once and shared by every workspace. Each workspace's exception lists are applied in the browser, so rule changes reclassify instantly.
 - **Quota:** each YouTube call is metered against `GLOBAL_DAILY_UNITS` (default 8,000 of the key's 10,000). Each workspace also has daily scan limits and a channel cap, editable on the Admin page. Both daily counts reset at midnight Pacific time, when YouTube resets its own quota.
+- **Saved edits:** a hand edit in the Fix description drawer can be saved as a whole-line find-and-replace rule (`shared/textEdits.ts`), for that video or every video whose saved description has the same lines. Rules run before planned link fixes, in the drawer and the Excel export.
 - **Defaults:** app-wide accepted redirects and redirector domains live in `shared/rules.ts` and change with a deploy. A deployment can add its own accepted redirects with the `EXTRA_ACCEPTED_REDIRECTS` var in `wrangler.jsonc` (comma-separated `from>to` pairs, e.g. `old-brand.com>new-brand.com`). Workspaces can turn individual defaults off.
 
 ## Layout
@@ -18,7 +19,7 @@ Scans the public video descriptions of YouTube channels and flags links that are
 | Path | What |
 |---|---|
 | `worker/` | API (`api.ts`), Access auth (`auth.ts`), scan queue (`scan.ts`), YouTube client (`youtube.ts`), link fetcher (`fetcher.ts`) |
-| `shared/` | Link extraction, checking and classification (`core.ts`), default rules (`rules.ts`), used by both Worker and UI |
+| `shared/` | Link extraction, checking and classification (`core.ts`), default rules (`rules.ts`), description fixes (`fixes.ts`) and saved edits (`textEdits.ts`), used by both Worker and UI |
 | `web/` | Svelte 5 + Tailwind 4 + shadcn-svelte UI, built into `dist/` and served as Worker assets |
 | `migrations/` | D1 schema |
 

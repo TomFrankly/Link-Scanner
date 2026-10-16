@@ -71,6 +71,7 @@
       paragraphs: [
         'Switch the report to Videos, or expand a link and click Fix description. A drawer opens with the description, your planned fixes applied, and every change highlighted.',
         'Tweak it if you like, click Copy, and paste it into YouTube Studio. Link Checker never changes anything on YouTube itself.',
+        'Changed a line that’s in other videos too, like a sponsor or footer? Click Save edit, and Link Checker finds every other video with the same line and offers to change it there as well.',
       ],
     },
     {
@@ -78,7 +79,7 @@
       video: 'share',
       paragraphs: [
         'Workspace owners can add teammates on the Members page, using any email address. They sign in with a one-time code sent to that address.',
-        'Export sends whatever the report is showing to Excel, a CSV file, or Google Sheets, including each link’s planned fix. The Excel file also has every video’s description, with your planned fixes applied and ready to paste.',
+        'Export sends whatever the report is showing to Excel, a CSV file, or Google Sheets, including each link’s planned fix. The Excel file also has every video’s description, with your saved edits and planned fixes applied, ready to paste.',
       ],
       page: { route: 'members', label: 'Open Members' },
     },

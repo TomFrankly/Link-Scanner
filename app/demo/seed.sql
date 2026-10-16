@@ -113,7 +113,16 @@ VALUES ('demo-ws', 'full', 'done', 11, 11, 'demo@example.com',
         strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours', '-6 minutes'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'),
         strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'));
 
--- Saved descriptions (a full scan stores these), used by the Excel export's Descriptions sheet.
+-- Saved descriptions (a full scan stores these), used by the Excel export's Descriptions sheet
+-- and by saved text edits. Every video shares the same two-line footer.
+UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
+'The note-taking system I use for everything, from video ideas to my reading list.
+
+Get Quill Notes: https://quillnotes.example/download
+Pricing: https://quillnotes.example/pricing
+
+🎵 Music: Lofi Lane, licensed through Tuneshelf
+📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo01';
 UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
 'Here''s my full desk setup for 2026, built for a small room and a big workflow.
 
@@ -123,11 +132,59 @@ Microphone review: https://mapleaudio.example/reviews/m2-mic
 Desk lamp: https://shop.megamart.example/item/48213
 Editing app I use: https://pixelpal.example/app
 
+🎵 Music: Lofi Lane, licensed through Tuneshelf
 📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo02';
 UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
-'The note-taking system I use for everything, from video ideas to my reading list.
+'My whole weekly planning routine, start to finish.
 
-Get Quill Notes: https://quillnotes.example/download
+The planner template: https://northwind.example/planner
+I take notes in Quill Notes: https://quillnotes.example/download
+
+🎵 Music: Lofi Lane, licensed through Tuneshelf
+📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo03';
+UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
+'Five budget microphones, one winner.
+
+My full review: https://mapleaudio.example/reviews/m2-mic
+Gear list: https://gearlist.example/northwind-desk
+Buy it here: https://shop.megamart.example/item/48213
+
+🎵 Music: Lofi Lane, licensed through Tuneshelf
+📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo04';
+UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
+'How to study in less time and remember more.
+
+Planner: https://northwind.example/planner
+Notes app: https://quillnotes.example/download
+My old study blog: https://oldstudyblog.example/
+
+🎵 Music: Lofi Lane, licensed through Tuneshelf
+📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo05';
+UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
+'The five apps on my home screen, and why.
+
+Quill Notes: https://quillnotes.example/download
+Quill pricing: https://quillnotes.example/pricing
+PixelPal: https://pixelpal.example/app
+Gear list: https://gearlist.example/northwind-desk
+
+🎵 Music: Lofi Lane, licensed through Tuneshelf
+📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo06';
+UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
+'Building a second brain, from an empty notes app to a working system.
+
+Quill Notes: https://quillnotes.example/download
 Pricing: https://quillnotes.example/pricing
+Free templates: https://notebook.example/templates
 
-📬 Newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo01';
+🎵 Music: Lofi Lane, licensed through Tuneshelf
+📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo07';
+UPDATE videos SET description_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'), description =
+'A calm morning routine that leaves room for creative work.
+
+Sunrise timer: https://sunrisetimer.example/
+Gear list: https://gearlist.example/northwind-desk
+The lamp: https://shop.megamart.example/item/48213
+
+🎵 Music: Lofi Lane, licensed through Tuneshelf
+📬 Get my weekly newsletter: https://northwind.example/newsletter' WHERE id = 'demoVideo08';

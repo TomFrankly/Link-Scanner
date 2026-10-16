@@ -5,10 +5,12 @@
 // Three formats:
 // - CSV: one row per link; a link's videos are joined with line breaks inside one cell.
 // - Excel: the same "Links" sheet, a "By video" sheet with one row per video and link, and a
-//   "Descriptions" sheet with each video's description, with planned fixes applied, ready to paste.
+//   "Descriptions" sheet with each video's description, with saved text edits and planned link
+//   fixes applied, ready to paste.
 // - Copy for Google Sheets: tab-separated text on the clipboard, one line per link.
 // Every format has a "Planned fix" column with the remove/replace decision for each link.
 import { applyFixes, type Decision, type Problem } from '$shared/fixes';
+import { applyTextEdits, type TextEdit } from '$shared/textEdits';
 import { CATEGORY } from './categories';
 import type { LinkFix, Row } from './types';
 
@@ -85,12 +87,20 @@ export type SavedDescriptions = Map<string, { d: string | null; at: string | nul
 
 /**
  * One row per video in the export, matching DESCRIPTIONS_HEADER, newest video first. The
- * description has this workspace's planned fixes applied (the same code as the Fix description
- * drawer); links without a planned fix are left as they are, so the text is safe to paste.
+ * description has this workspace's saved text edits and planned link fixes applied, in that
+ * order (the same code as the Fix description drawer); links without a planned fix are left as
+ * they are, so the text is safe to paste.
  * `allRows` is every link in the workspace, so a video's fixes apply even to links the current
  * filter hides.
  */
-function descriptionRows(rows: Row[], allRows: Row[], channelTitle: Record<string, string>, fixes: Fixes, saved: SavedDescriptions) {
+function descriptionRows(
+  rows: Row[],
+  allRows: Row[],
+  channelTitle: Record<string, string>,
+  fixes: Fixes,
+  saved: SavedDescriptions,
+  textEdits: TextEdit[],
+) {
   const videos = new Map<string, Row['videos'][number]>();
   for (const r of rows) for (const v of r.videos) videos.set(v.id, v);
   const newestFirst = [...videos.values()].sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? ''));
@@ -101,15 +111,16 @@ function descriptionRows(rows: Row[], allRows: Row[], channelTitle: Record<strin
     const decisions: Record<string, Decision> = Object.fromEntries(
       planned.map((r) => [r.url, { action: fixes.get(r.url)!.action, replacement: fixes.get(r.url)!.replacement }]),
     );
-    const fixed = desc?.d != null && problems.length ? applyFixes(desc.d, problems, decisions) : null;
-    const text = desc?.d == null ? 'Not saved yet. Run a full scan to fetch descriptions.' : (fixed?.text ?? desc.d);
+    const edited = desc?.d != null ? applyTextEdits(desc.d, textEdits, v.id) : null;
+    const fixed = edited && problems.length ? applyFixes(edited.text, problems, decisions) : null;
+    const text = edited === null ? 'Not saved yet. Run a full scan to fetch descriptions.' : (fixed?.text ?? edited.text);
     return [
       safe(v.title),
       watch(v.id),
       studio(v.id),
       safe(channelTitle[v.channelId] ?? v.channelId),
       { value: clip(safe(text)), wrap: true },
-      fixed ? fixed.changed : 0,
+      (edited?.changed ?? 0) + (fixed?.changed ?? 0),
       desc?.at ? new Date(desc.at).toLocaleString() : '',
     ];
   });
@@ -146,7 +157,7 @@ export async function downloadXlsx(
   channelTitle: Record<string, string>,
   fixes: Fixes,
   base: string,
-  { allRows, descriptions }: { allRows: Row[]; descriptions: SavedDescriptions },
+  { allRows, descriptions, textEdits }: { allRows: Row[]; descriptions: SavedDescriptions; textEdits: TextEdit[] },
 ) {
   // Loaded on demand so the spreadsheet library isn't in the main bundle.
   const { default: writeXlsxFile } = await import('write-excel-file/browser');
@@ -168,7 +179,7 @@ export async function downloadXlsx(
     },
     {
       sheet: 'Descriptions',
-      data: [DESCRIPTIONS_HEADER.map(bold), ...descriptionRows(rows, allRows, channelTitle, fixes, descriptions)],
+      data: [DESCRIPTIONS_HEADER.map(bold), ...descriptionRows(rows, allRows, channelTitle, fixes, descriptions, textEdits)],
       columns: widths([44, 44, 44, 24, 90, 10, 20]),
       stickyRowsCount: 1,
     },

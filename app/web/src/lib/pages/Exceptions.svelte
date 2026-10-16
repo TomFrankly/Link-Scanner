@@ -3,12 +3,15 @@
   // which links to hide, plus the app defaults it can turn off. The rules live in
   // `app.report.rules`; addRule/removeRule (store.svelte.ts) save them through the API and patch
   // that list, and the report reclassifies in the browser at once, with no recheck.
+  // It also lists the workspace's saved text edits (hand edits saved from the Fix description
+  // drawer), with how many videos each one currently changes.
   import X from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
   import { Input } from '$lib/components/ui/input';
   import { acceptedKey, type RuleRow, type RuleType } from '$shared/rules';
-  import { addRule, app, removeRule } from '$lib/store.svelte';
+  import { addRule, app, loadDescriptions, removeRule, removeTextEdit } from '$lib/store.svelte';
+  import { applyTextEdits, type TextEdit } from '$shared/textEdits';
 
   const report = $derived(app.report!);
   // The workspace's own rules of one type (the defaults are listed separately below).
@@ -30,8 +33,28 @@
     if (type === 'redirector' && (await addRule('redirector', redirector, undefined, redNote))) redirector = redNote = '';
     if (type === 'ignored' && (await addRule('ignored', ignored, undefined, ignNote))) ignored = ignNote = '';
   }
+  // How many videos each saved text edit changes now, by edit id. Worked out from the saved
+  // descriptions, so an edit whose lines have since changed on YouTube shows 0. Null while loading.
+  let editCounts = $state<Map<number, number> | null>(null);
+  $effect(() => {
+    const edits = report.textEdits;
+    if (!edits.length) return;
+    loadDescriptions()
+      .then((all) => {
+        const counts = new Map<number, number>(edits.map((e) => [e.id, 0]));
+        for (const [id, x] of all) {
+          if (x.d == null) continue;
+          for (const i of applyTextEdits(x.d, edits, id).used) counts.set(edits[i]!.id, counts.get(edits[i]!.id)! + 1);
+        }
+        editCounts = counts;
+      })
+      .catch(() => (editCounts = null));
+  });
+  const lines = (s: string) => (s === '' ? [] : s.split('\n'));
+  const scope = (e: TextEdit) => (e.videos ? `Chosen videos (${e.videos.length})` : 'Every video with these lines');
+
   // "alex · 3/14/2026": who added a rule and when, by the email's name part.
-  const addedLine = (r: RuleRow) => `${r.addedBy.split('@')[0]} · ${new Date(r.addedAt).toLocaleDateString()}`;
+  const addedLine = (r: Pick<RuleRow, 'addedBy' | 'addedAt'>) => `${r.addedBy.split('@')[0]} · ${new Date(r.addedAt).toLocaleDateString()}`;
 </script>
 
 <!-- A removable list of rules; `fmt` turns a rule into its display text. -->
@@ -97,6 +120,45 @@
     </Card.Content>
   </Card.Root>
 </div>
+
+<Card.Root class="mt-4">
+  <Card.Header>
+    <Card.Title>Saved text edits</Card.Title>
+    <Card.Description>
+      Hand edits saved from the Fix description panel. Each replaces whole lines wherever they appear in the videos it covers, before planned link fixes
+      run. Edit a description and click Save edit to add one.
+    </Card.Description>
+  </Card.Header>
+  <Card.Content>
+    <div class="divide-y rounded-lg border">
+      {#each report.textEdits as e (e.id)}
+        {@const n = editCounts?.get(e.id)}
+        <div class="flex items-start gap-2 px-3 py-2">
+          <div class="min-w-0 flex-1 space-y-1.5">
+            <div class="overflow-hidden rounded-md border font-mono text-xs leading-relaxed">
+              {#each lines(e.find) as l, k (k)}
+                <div class="flex bg-[#d03b3b]/10 px-2 dark:bg-[#d03b3b]/20"><span class="text-muted-foreground w-4 shrink-0 select-none">−</span><span class="break-all whitespace-pre-wrap">{l || ' '}</span></div>
+              {/each}
+              {#each lines(e.replace) as l, k (k)}
+                <div class="flex bg-[#0ca30c]/10 px-2 dark:bg-[#0ca30c]/20"><span class="text-muted-foreground w-4 shrink-0 select-none">+</span><span class="break-all whitespace-pre-wrap">{l || ' '}</span></div>
+              {:else}
+                <div class="text-muted-foreground px-2 italic">Lines deleted</div>
+              {/each}
+            </div>
+            <div class="text-muted-foreground text-xs">
+              {[scope(e), n === undefined ? '' : n === 0 ? 'not found in any saved description' : `changes ${n} video${n === 1 ? '' : 's'}`, addedLine(e)]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+          </div>
+          <Button size="icon-xs" variant="ghost" aria-label="Remove" onclick={() => removeTextEdit(e.id)}><X /></Button>
+        </div>
+      {:else}
+        <div class="text-muted-foreground px-3 py-4 text-center text-xs">None yet</div>
+      {/each}
+    </div>
+  </Card.Content>
+</Card.Root>
 
 <Card.Root class="mt-4">
   <Card.Header>

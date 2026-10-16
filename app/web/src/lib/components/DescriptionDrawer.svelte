@@ -5,13 +5,18 @@
   // Mounted once by the Report page and opened by setting `ui.drawerVideoId` (the "Fix
   // description" buttons). The video's problem links come from `data.rows`, their planned
   // fixes from `data.fixes`, and the description itself is fetched fresh from the API.
-  // The rewriting is done by the pure functions in shared/fixes.ts; nothing here is saved,
-  // and nothing changes on YouTube: the user copies the result into YouTube Studio.
+  // The workspace's saved text edits (shared/textEdits.ts) run first, then the link fixes
+  // (shared/fixes.ts). Hand edits typed here can be saved as new text edits, optionally for
+  // every other video with the same lines (SaveEditsDialog). Nothing changes on YouTube: the
+  // user copies the result into YouTube Studio.
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import X from '@lucide/svelte/icons/x';
   import Copy from '@lucide/svelte/icons/copy';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+  import Save from '@lucide/svelte/icons/save';
+  import PencilLine from '@lucide/svelte/icons/pencil-line';
+  import SaveEditsDialog from './SaveEditsDialog.svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import PlanFixButton from './PlanFixButton.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -19,8 +24,9 @@
   import StatusBadge from './StatusBadge.svelte';
   import PlannedFix from './PlannedFix.svelte';
   import { api } from '$lib/api';
-  import { app, data, ui } from '$lib/store.svelte';
+  import { app, data, removeTextEdit, ui } from '$lib/store.svelte';
   import { applyFixes, FIXABLE, highlightRanges, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
+  import { applyTextEdits, editsFromHandEdit, type FoundEdit } from '$shared/textEdits';
 
   const MIN = 220;
   // Room left above the drawer at full height, so the top bar stays visible.
@@ -115,12 +121,17 @@
   // The tabs above the editor: apply planned fixes (unplanned links get a marker), remove every
   // problem link, swap every redirect for where it lands now, or show the original text.
   let mode = $state<'apply' | 'remove' | 'redirects' | 'original'>('apply');
+  // The description with the workspace's saved text edits applied; the link fixes run on this.
+  const textEdits = $derived(app.report?.textEdits ?? []);
+  const source = $derived(description === null ? null : applyTextEdits(description, textEdits, ui.drawerVideoId ?? ''));
+  // The saved edits that changed this video, listed beside the editor.
+  const savedHere = $derived((source?.used ?? []).map((i) => textEdits[i]!));
   const generated = $derived.by((): FixResult | null => {
-    if (description === null) return null;
-    if (mode === 'original') return { text: description, changed: 0, parts: [{ text: description }] };
-    if (mode === 'remove') return removeLinks(description, problems);
-    if (mode === 'redirects') return updateRedirects(description, problems);
-    return applyFixes(description, problems, decisions);
+    if (description === null || source === null) return null;
+    if (mode === 'original') return { text: description, changed: 0, parts: [{ text: description }], origin: description.split('\n').map((_, i) => i) };
+    const fixed =
+      mode === 'remove' ? removeLinks(source.text, problems) : mode === 'redirects' ? updateRedirects(source.text, problems) : applyFixes(source.text, problems, decisions);
+    return { ...fixed, changed: fixed.changed + source.changed };
   });
 
   // The editable text follows the generated text until the user types in it.
@@ -129,11 +140,22 @@
   $effect(() => {
     if (generated && !edited) text = generated.text;
   });
-  const stale = $derived(edited && generated !== null && generated.text !== text);
+  // What the text looked like when the user started typing, so a save compares against that
+  // even if a planned fix changes the generated text meanwhile.
+  let editBase = $state<{ source: string; shown: FixResult } | null>(null);
+  // A planned fix changed the generated text after the user started editing.
+  const stale = $derived(edited && generated !== null && editBase !== null && generated.text !== editBase.shown.text);
+  function onInput() {
+    if (!edited && source && generated) editBase = { source: source.text, shown: generated };
+    edited = true;
+  }
 
   // Highlight changed spots by searching the current text, so they survive hand edits.
   // `generated.parts` marks each changed run with `hl`; those runs are what we search for.
-  const needles = $derived((generated?.parts ?? []).filter((p) => p.hl && p.text.trim()).map((p) => p.text));
+  const needles = $derived([
+    ...(generated?.parts ?? []).filter((p) => p.hl && p.text.trim()).map((p) => p.text),
+    ...(mode !== 'original' ? (source?.added ?? []) : []),
+  ]);
   const segments = $derived.by(() => {
     const out: { t: string; hl: boolean }[] = [];
     let at = 0;
@@ -167,9 +189,30 @@
     edited = false;
     if (generated) text = generated.text;
   }
+
+  // ---- saving a hand edit as text edits ----
+  // The changes found in the hand edit; setting this opens SaveEditsDialog.
+  let found = $state<FoundEdit[] | null>(null);
+  // Saving needs a base the edit can be traced back to, which the Original tab (YouTube's text,
+  // before saved edits) isn't.
+  const canSave = $derived(edited && mode !== 'original' && description !== null);
+  function startSave() {
+    if (!editBase) return;
+    const edits = editsFromHandEdit(editBase.source, editBase.shown, text);
+    if (edits.length) found = edits;
+    else toast.info('Nothing to save: only spacing or blank lines changed.');
+  }
+  function saved() {
+    found = null;
+    edited = false; // the generated text now includes the saved edit
+    toast.success('Edit saved. It applies here and in the Excel export.');
+  }
+
   const close = () => (ui.drawerVideoId = null);
-  // Escape closes the drawer, unless the fix dialog is open on top of it (Escape closes that instead).
-  const onKey = (e: KeyboardEvent) => e.key === 'Escape' && ui.drawerVideoId && !ui.fixLinkUrl && close();
+  // Escape closes the drawer, unless a dialog is open on top of it (Escape closes that instead).
+  const onKey = (e: KeyboardEvent) => e.key === 'Escape' && ui.drawerVideoId && !ui.fixLinkUrl && !found && close();
+  // A saved edit's first changed line, for the list beside the editor.
+  const preview = (find: string, replace: string) => replace.split('\n').find((l) => l.trim() && !find.split('\n').includes(l)) ?? `Deleted: ${find.split('\n').find((l) => l.trim())}`;
 
   const MODES = $derived([
     // [mode, label, short label for phones]
@@ -210,7 +253,7 @@
       <div class="min-w-0 flex-1">
         <div class="truncate text-sm font-medium" title={video.title}>{video.title}</div>
         <div class="text-muted-foreground text-xs">
-          {links.length} problem link{links.length === 1 ? '' : 's'}<span class="hidden sm:inline"> · changes here aren't saved; copy the result into Studio</span>
+          {links.length} problem link{links.length === 1 ? '' : 's'}<span class="hidden sm:inline"> · copy the result into Studio</span>
         </div>
       </div>
       <a class="text-muted-foreground hover:text-foreground hidden text-xs sm:inline" href="https://www.youtube.com/watch?v={video.id}" target="_blank" rel="noreferrer">Watch</a>
@@ -236,6 +279,21 @@
             </li>
           {/each}
         </ul>
+        {#if savedHere.length}
+          <div class="text-muted-foreground border-t px-4 pt-3 pb-1 text-xs">Saved edits on this video</div>
+          <ul class="divide-y">
+            {#each savedHere as e (e.id)}
+              <li class="flex items-start gap-2 px-4 py-2">
+                <PencilLine class="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate font-mono text-xs" title={e.replace || e.find}>{preview(e.find, e.replace)}</div>
+                  <div class="text-muted-foreground text-xs">{e.videos ? `${e.videos.length} video${e.videos.length === 1 ? '' : 's'}` : 'Every video with these lines'}</div>
+                </div>
+                <Button size="icon-xs" variant="ghost" aria-label="Remove saved edit" title="Remove this saved edit from every video it applies to" onclick={() => removeTextEdit(e.id)}><X /></Button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </aside>
 
       <!-- Editor -->
@@ -261,6 +319,9 @@
             {#if edited}
               <Button size="sm" variant="ghost" onclick={reset}><RotateCcw /> {stale ? 'Reapply fixes' : 'Undo my edits'}</Button>
             {/if}
+            {#if canSave}
+              <Button size="sm" variant="outline" onclick={startSave} title="Save your edit, here and in other videos with the same lines"><Save /> Save edit</Button>
+            {/if}
             <Button size="sm" onclick={copy} disabled={description === null}><Copy /> Copy</Button>
           </div>
         </div>
@@ -283,7 +344,7 @@
               class="text-foreground pointer-events-none absolute inset-0 m-0 overflow-y-scroll p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap [scrollbar-color:transparent_transparent]">{#each segments as s, i (i)}{#if s.hl}<mark class="text-foreground rounded-[3px] {tint}">{s.t}</mark>{:else}{s.t}{/if}{/each}</pre>
             <textarea
               bind:value={text}
-              oninput={() => (edited = true)}
+              oninput={onInput}
               onscroll={syncScroll}
               spellcheck="false"
               aria-label="Fixed description"
@@ -294,4 +355,5 @@
       </div>
     </div>
   </section>
+  <SaveEditsDialog edits={found} videoId={video.id} onclose={() => (found = null)} onsaved={saved} />
 {/if}

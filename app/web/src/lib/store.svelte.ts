@@ -10,6 +10,7 @@
 import { toast } from 'svelte-sonner';
 import { classify, cleanDomain, hostOf, type LinkResult, type Rules } from '$shared/core';
 import { effectiveRules, type RuleRow, type RuleType } from '$shared/rules';
+import type { FoundEdit, TextEdit } from '$shared/textEdits';
 import { api } from './api';
 import type { LinkFix, Me, Report, Row, ScanState, VideoRef } from './types';
 
@@ -194,6 +195,37 @@ export async function removeRule(id: number) {
     await api(`/w/${app.wsId}/rules/${id}`, { method: 'DELETE' });
   } catch (e) {
     app.report.rules = before;
+    fail(e);
+  }
+}
+
+/** Every video's saved description (full scans save them), keyed by video id. Costs no YouTube quota. */
+export async function loadDescriptions() {
+  const res = await api<{ descriptions: { id: string; d: string | null; at: string | null }[] }>(`/w/${app.wsId}/descriptions`);
+  return new Map(res.descriptions.map((x) => [x.id, { d: x.d, at: x.at }]));
+}
+
+/** Saves hand edits as text edits; `videos` null applies one to every video with its text. */
+export async function saveTextEdits(edits: (FoundEdit & { videos: string[] | null })[]) {
+  if (!app.report) return false;
+  try {
+    const res = await api<{ textEdits: TextEdit[] }>(`/w/${app.wsId}/text-edits`, { method: 'POST', body: { edits } });
+    app.report.textEdits = res.textEdits;
+    return true;
+  } catch (e) {
+    fail(e);
+    return false;
+  }
+}
+
+/** Deletes a saved text edit, from every video it applied to. */
+export async function removeTextEdit(id: number) {
+  if (!app.report) return;
+  try {
+    const res = await api<{ textEdits: TextEdit[] }>(`/w/${app.wsId}/text-edits/${id}`, { method: 'DELETE' });
+    app.report.textEdits = res.textEdits;
+    toast.success('Saved edit removed');
+  } catch (e) {
     fail(e);
   }
 }

@@ -25,7 +25,6 @@
   import { toast } from 'svelte-sonner';
   import BreakdownChart from '$lib/components/BreakdownChart.svelte';
   import { copyForSheets, downloadCsv, downloadXlsx } from '$lib/export';
-  import { api } from '$lib/api';
   import { duration, runEstimates } from '$lib/estimate';
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
@@ -36,7 +35,7 @@
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import { baseDomain, hostOf } from '$shared/core';
   import { FILTERS, isFlagged } from '$lib/categories';
-  import { addRule, app, data, go, removeRule, startScan, ui } from '$lib/store.svelte';
+  import { addRule, app, data, go, loadDescriptions, removeRule, startScan, ui } from '$lib/store.svelte';
   import type { Row } from '$lib/types';
 
   // How many links show before "Show more", and how many videos an expanded link lists at first.
@@ -129,9 +128,8 @@
       if (kind === 'csv') downloadCsv(rows, channelTitle, data.fixes, fileBase);
       else if (kind === 'xlsx') {
         // Saved descriptions come from the database (full scans save them), so no quota is spent.
-        const res = await api<{ descriptions: { id: string; d: string | null; at: string | null }[] }>(`/w/${app.wsId}/descriptions`);
-        const descriptions = new Map(res.descriptions.map((x) => [x.id, { d: x.d, at: x.at }]));
-        await downloadXlsx(rows, channelTitle, data.fixes, fileBase, { allRows: data.rows, descriptions });
+        const descriptions = await loadDescriptions();
+        await downloadXlsx(rows, channelTitle, data.fixes, fileBase, { allRows: data.rows, descriptions, textEdits: app.report?.textEdits ?? [] });
       } else {
         await copyForSheets(rows, channelTitle, data.fixes);
         toast.success(`Copied ${rows.length.toLocaleString()} rows. In Google Sheets, click cell A1 and paste.`);

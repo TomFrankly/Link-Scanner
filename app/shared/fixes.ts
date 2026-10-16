@@ -22,6 +22,11 @@ export interface FixResult {
   text: string;
   changed: number;
   parts: Part[];
+  /**
+   * For each line of `text`, the index of the input line it came from. Removing a link can drop
+   * a line, so this lets a hand edit of the output be traced back to the input (textEdits.ts).
+   */
+  origin: number[];
 }
 
 /** Categories the Fix description panel offers to fix. */
@@ -82,20 +87,20 @@ function rewriteLines(desc: string, problems: Problem[], pick: (p: Problem) => s
   });
 }
 
-/** Joins lines back with newlines, dropping empty parts. */
-function join(lines: Part[][]): Omit<FixResult, 'changed'> {
+/** Joins lines back with newlines, dropping empty parts. `origin` is each line's input line index. */
+function join(lines: Part[][], origin: number[]): Omit<FixResult, 'changed'> {
   const parts: Part[] = [];
   lines.forEach((l, i) => {
     if (i) parts.push({ text: '\n' });
     parts.push(...l.filter((p) => p.text));
   });
-  return { text: parts.map((p) => p.text).join(''), parts };
+  return { text: parts.map((p) => p.text).join(''), parts, origin };
 }
 
 /** rewriteLines without any tidying: every swap is a plain substitution. */
 function replaceWith(desc: string, problems: Problem[], pick: (p: Problem) => string | null): FixResult {
   const lines = rewriteLines(desc, problems, pick);
-  return { ...join(lines.map((l) => l.parts)), changed: lines.reduce((n, l) => n + l.hits, 0) };
+  return { ...join(lines.map((l) => l.parts), lines.map((_, i) => i)), changed: lines.reduce((n, l) => n + l.hits, 0) };
 }
 
 const marker = (p: Problem) => `[FIX THIS: ${p.url} (${reasonFor(p)})]`;
@@ -146,9 +151,9 @@ export function applyFixes(desc: string, problems: Problem[], decisions: Record<
 /** Joins rewritten lines, cleaning up only the lines a removal touched. */
 function tidy(desc: string, lines: Line[]): FixResult {
   const originals = desc.split('\n');
-  const out: { parts: Part[]; dropped?: boolean }[] = lines.map((l, i) => {
+  const out: { parts: Part[]; at: number; dropped?: boolean }[] = lines.map((l, i) => {
     const original = originals[i]!;
-    if (!l.removed) return { parts: l.parts };
+    if (!l.removed) return { parts: l.parts, at: i };
     let s = l.parts
       .map((p) => p.text)
       .join('')
@@ -156,7 +161,7 @@ function tidy(desc: string, lines: Line[]): FixResult {
       .replace(/ +([,.;:!?])/g, '$1')
       .trimEnd();
     if (!/^\s/.test(original)) s = s.trimStart();
-    return onlyPunctuation(s) ? { parts: [], dropped: true } : { parts: [{ text: s, hl: true }] };
+    return onlyPunctuation(s) ? { parts: [], at: i, dropped: true } : { parts: [{ text: s, hl: true }], at: i };
   });
   const textOf = (x: { parts: Part[] }) => x.parts.map((p) => p.text).join('');
   // Dropping a line that sat between two blank lines would leave a double gap.
@@ -168,8 +173,8 @@ function tidy(desc: string, lines: Line[]): FixResult {
     if (j < out.length && blank(textOf(out[j]!)) && (!before || blank(textOf(before)))) out[j]!.dropped = true;
     i = j;
   }
-  const kept = out.filter((x) => !x.dropped).map((x) => x.parts);
-  return { ...join(kept), changed: lines.reduce((n, l) => n + l.hits, 0) };
+  const kept = out.filter((x) => !x.dropped);
+  return { ...join(kept.map((x) => x.parts), kept.map((x) => x.at)), changed: lines.reduce((n, l) => n + l.hits, 0) };
 }
 
 /**
