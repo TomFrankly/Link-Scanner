@@ -32,7 +32,7 @@
 
   const ACCESS = [
     ['This site only', 'It runs a tiny script on this Link Checker site, which tells the app it’s installed and passes on “open this Studio link”. Your browser will describe this as reading and changing your data on this site.'],
-    ['One tab', 'It opens one tab and later changes that tab’s address, only ever to a YouTube Studio video page, and only when you click a Studio button in this app. Studio links elsewhere and Studio tabs you open yourself are left alone. It can’t see your other tabs or read any page.'],
+    ['Studio tabs', 'It can tell which of your tabs are on YouTube Studio, so it can reuse one that’s already open in this window, like the other side of a split view. Otherwise it opens one. It then changes that tab’s address, only ever to a Studio video page, and only when you click a Studio button in this app. Your browser will describe this as reading and changing your data on studio.youtube.com, but it never reads or changes a page, and it can’t see the address of any tab that isn’t on Studio.'],
     ['Nothing else', 'It remembers that tab until you close the browser. It makes no network requests and sends nothing anywhere.'],
   ];
 </script>
@@ -72,8 +72,8 @@
       <section class="border-t pt-5">
         <h3 class="mb-1 font-medium">Other browsers, or if that doesn’t work: the Studio tab extension</h3>
         <p class="text-muted-foreground mb-3">
-          A small, optional extension that sends every Studio link from this app to the same tab: the one it opened itself, not a pane you set up. So if you use
-          Edge Split View, skip the extension (or turn it off), since it takes Studio links away from the linked pane.
+          A small, optional extension that sends every Studio link from this app to the same tab: a Studio tab already open in this window (such as the
+          other side of a split view), or one it opens. Installed an earlier copy? Download it again, replace the folder, and click Reload on the extension.
         </p>
 
         <h4 class="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">Install (Chrome, Arc, Edge, Brave)</h4>
