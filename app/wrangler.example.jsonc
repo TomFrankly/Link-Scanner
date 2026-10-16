@@ -1,0 +1,56 @@
+// Copy this file to wrangler.jsonc (gitignored) and fill in your own values.
+// See "Deploy your own copy" in README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Also your workers.dev hostname: <name>.<your-subdomain>.workers.dev
+  "name": "link-checker",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-06-01",
+  "observability": { "enabled": true },
+  // Optional custom domain on a zone in your Cloudflare account.
+  // Cloudflare Access must cover every hostname here (see README); the Worker rejects
+  // requests without a valid Access token, so an uncovered hostname just shows an error.
+  // "routes": [{ "pattern": "links.example.com", "custom_domain": true }],
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    // Your email. The admin can create a workspace and allow other people on the Admin page.
+    "ADMIN_EMAIL": "you@example.com",
+    // People at these comma-separated domains get their own workspace on first sign-in.
+    // Leave empty to allow only the admin and the emails they add.
+    "OWNER_DOMAINS": "",
+    "GLOBAL_DAILY_UNITS": "8000",
+    // Used for the link in notification emails. Your custom domain or workers.dev URL.
+    "APP_URL": "",
+    // Admin emails need a `send_email` binding named EMAIL plus this sender address
+    // (see worker/notify.ts and the README). Empty means notifications are off.
+    "NOTIFY_FROM": "",
+    // Filled in after Cloudflare Access is turned on for this Worker (see README).
+    // While these are empty, every API call fails with "Cloudflare Access is not configured".
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "ytlinks", "migrations_dir": "migrations" }
+  ],
+  // Recovery sweep for stalled scans (see sweepStalledScans in worker/scan.ts).
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "queues": {
+    "producers": [{ "queue": "ytlinks-jobs", "binding": "JOBS" }],
+    "consumers": [
+      {
+        "queue": "ytlinks-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        // One message at a time keeps per-host spacing polite across all workspaces.
+        "max_concurrency": 1,
+        "max_retries": 3
+      }
+    ]
+  }
+}

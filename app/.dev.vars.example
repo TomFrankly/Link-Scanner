@@ -1,0 +1,4 @@
+# Local `wrangler dev` only. Copy to .dev.vars (gitignored).
+YOUTUBE_API_KEY=your-youtube-data-api-key
+# Stands in for Cloudflare Access on localhost; ignored on any other hostname.
+DEV_AUTH_EMAIL=you@example.com

@@ -1,0 +1,10 @@
+# Secrets, in any folder: .env, .env.local, .env.production, Wrangler's .dev.vars, etc.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.DS_Store
+# Local machine config (dev server launch settings)
+.claude/

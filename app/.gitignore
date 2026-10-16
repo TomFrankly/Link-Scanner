@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+# Your deployment's own config and branding (start from wrangler.example.jsonc / .env.example)
+wrangler.jsonc
+web/public/brand/
