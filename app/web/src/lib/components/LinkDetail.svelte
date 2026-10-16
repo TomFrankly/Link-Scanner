@@ -4,6 +4,8 @@
   // that uses it, each with Fix description (opens the video in the Videos view) and Studio.
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import Ellipsis from '@lucide/svelte/icons/ellipsis';
+  import PanelLeftOpen from '@lucide/svelte/icons/panel-left-open';
+  import ItemArrows from './ItemArrows.svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import FileText from '@lucide/svelte/icons/file-text';
   import Hint from './Hint.svelte';
@@ -24,6 +26,9 @@
     channelTitle,
     canRecheck,
     onback,
+    onexpand,
+    onprev,
+    onnext,
   }: {
     row: Row;
     channelTitle: Record<string, string>;
@@ -31,6 +36,11 @@
     canRecheck: boolean;
     /** Back to the list, when the panes are stacked (narrow windows); null hides it. */
     onback: (() => void) | null;
+    /** Shows the collapsed list again; null hides it. */
+    onexpand: (() => void) | null;
+    /** The previous and next link in the list; null disables that arrow. */
+    onprev: (() => void) | null;
+    onnext: (() => void) | null;
   } = $props();
 
   const VIDEOS_SHOWN = 25;
@@ -69,6 +79,9 @@
     {#if onback}
       <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Back to the list" onclick={onback}><ArrowLeft /></Button>
     {/if}
+    {#if onexpand}
+      <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Show the list" title="Show the list" onclick={onexpand}><PanelLeftOpen /></Button>
+    {/if}
     <StatusBadge category={row.cls.category} />
     <span class="text-muted-foreground min-w-0 flex-1 truncate text-xs">
       in {row.videos.length} video{row.videos.length === 1 ? '' : 's'}{#if multiChannel}{' '}across {channelCount} channel{channelCount === 1 ? '' : 's'}{/if}
@@ -100,6 +113,7 @@
         <DropdownMenu.Item onSelect={() => window.open(row.url, '_blank', 'noreferrer')}>Open link</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
+    <div class="-mr-2"><ItemArrows {onprev} {onnext} noun="link" /></div>
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">

@@ -3,7 +3,8 @@
   // health bar, Export and Rescan), then a list pane of links or videos with filters, search and
   // sort, and a content pane for the picked link (LinkDetail) or video (VideoDetail). The panes
   // scroll on their own and the list pane can be resized; in a narrow window they stack, and
-  // the content pane opens over the list with a back button. All rows come from `data.rows` in
+  // the content pane opens over the list with a back button. Collapsing the list (focus mode)
+  // leaves the content pane, which then moves through the list with its own up and down arrows. All rows come from `data.rows` in
   // store.svelte.ts, already classified in the browser with this workspace's rules, so
   // filtering, searching and the counts here never call the server. Other pages open a video
   // here through `ui.openVideo`.
@@ -15,8 +16,7 @@
   import Download from '@lucide/svelte/icons/download';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
   import X from '@lucide/svelte/icons/x';
-  import Link2 from '@lucide/svelte/icons/link-2';
-  import Clapperboard from '@lucide/svelte/icons/clapperboard';
+  import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
   import ListFilter from '@lucide/svelte/icons/list-filter';
   import ArrowUpDown from '@lucide/svelte/icons/arrow-up-down';
   import Tv from '@lucide/svelte/icons/tv';
@@ -137,6 +137,9 @@
     }
   }
 
+  const filterLabel = $derived(FILTERS.find((f) => f.key === filter)?.label);
+  const sortLabel = $derived(sort === 'az' ? 'A–Z' : 'Most videos');
+
   function setFilter(key: string) {
     filter = key;
     limit = PAGE;
@@ -154,13 +157,14 @@
   // ---- panes ----
   // Side by side when there's room for both; otherwise the list, with the picked item opening
   // over it (`stacked` and `detailOpen`).
-  const LIST_MIN = 220;
+  const LIST_MIN = 260;
   const DETAIL_MIN = 380;
   let width = $state(0);
   const stacked = $derived(width < LIST_MIN + DETAIL_MIN);
   const listMax = $derived(Math.max(LIST_MIN, Math.min(width * 0.6, width - DETAIL_MIN)));
   const listWidth = $derived(Math.min(Math.max(layout.listWidth.value, LIST_MIN), listMax));
   let detailOpen = $state(false);
+  const collapsed = $derived(layout.listCollapsed.value && !stacked);
 
   // What's open in the content pane. Side by side, the first item opens until another is picked.
   let pickedLink = $state<string | null>(null);
@@ -177,9 +181,13 @@
     if (kind === 'link') pickedLink = key;
     else pickedVideo = key;
     detailOpen = true;
+    // Show enough of the list to include it.
     if (kind === 'video') {
       const at = groups.findIndex((g) => g.video.id === key);
       if (at >= videoLimit) videoLimit = Math.ceil((at + 1) / VIDEO_PAGE) * VIDEO_PAGE;
+    } else {
+      const at = rows.findIndex((r) => r.url === key);
+      if (at >= limit) limit = Math.ceil((at + 1) / PAGE) * PAGE;
     }
     await tick();
     rowEl(kind, key)?.scrollIntoView({ block: 'nearest' });
@@ -201,24 +209,28 @@
     tab = 'description';
     focus = { url, n: ++focusCount };
   }
-  /** The next video with problem links after the open one, in the list's order. */
-  const nextToFix = $derived.by(() => {
-    const at = currentGroup ? groups.indexOf(currentGroup) : -1;
-    return groups.slice(at + 1).find((g) => g.problems.length)?.video.id ?? null;
+  /** The items before and after the open one in the list's order, for the content pane's arrows. */
+  const around = $derived.by(() => {
+    const keys = view === 'links' ? rows.map((r) => r.url) : groups.map((g) => g.video.id);
+    const now = view === 'links' ? currentLink?.url : currentGroup?.video.id;
+    const at = now ? keys.indexOf(now) : -1;
+    return { prev: at > 0 ? keys[at - 1] : null, next: keys[at + 1] ?? null };
   });
+  const step = (key: string | null) => (key ? () => pick(view === 'links' ? 'link' : 'video', key) : null);
 
   // Up and down arrows move through the list, opening each item, like an email inbox.
   function listKeys(e: KeyboardEvent) {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     if ((e.target as HTMLElement).closest('input, [role="combobox"]')) return;
     e.preventDefault();
-    const keys = view === 'links' ? shown.map((r) => r.url) : shownGroups.map((g) => g.video.id);
-    const now = view === 'links' ? currentLink?.url : currentGroup?.video.id;
-    const at = now ? keys.indexOf(now) : -1;
-    const next = keys[Math.min(Math.max(at + (e.key === 'ArrowDown' ? 1 : -1), 0), keys.length - 1)];
+    const next = e.key === 'ArrowDown' ? around.next : around.prev;
     if (!next) return;
     const kind = view === 'links' ? 'link' : 'video';
     pick(kind, next).then(() => rowEl(kind, next)?.focus());
+  }
+  function setView(v: 'links' | 'videos') {
+    view = v;
+    limit = PAGE;
   }
 </script>
 
@@ -328,14 +340,15 @@
   {:else}
     <div class="flex min-h-0 flex-1" bind:clientWidth={width}>
       <!-- List pane -->
-      {#if !stacked || !detailOpen || !(view === 'links' ? currentLink : currentGroup)}
+      {#if !collapsed && (!stacked || !detailOpen || !(view === 'links' ? currentLink : currentGroup))}
         <section
           class="flex min-h-0 flex-col {stacked ? 'w-full' : 'shrink-0'}"
           style={stacked ? undefined : `width: ${listWidth}px`}
           aria-label={view === 'links' ? 'Links' : 'Videos'}
         >
-          <!-- Toolbar, one row: what the list shows, search (an icon until it's used), and icon menus
-               for the view, status filter, channel and sort. A dot marks a menu that's changed. -->
+          <!-- Toolbar, one row: the Links | Videos switcher (search replaces it while it's used),
+               then icon menus for the status filter and channel, and the collapse button. A dot
+               marks a menu that's changed. -->
           <div class="flex h-11 flex-none items-center gap-0.5 border-b px-2">
             {#if searching || query}
               <div class="relative min-w-0 flex-1">
@@ -359,34 +372,27 @@
                 {/if}
               </div>
             {:else}
-              <div class="min-w-0 flex-1 truncate px-1 text-sm">
-                <span class="font-medium">{view === 'links' ? 'Links' : 'Videos'}</span>
-                <span class="text-muted-foreground"> · {FILTERS.find((f) => f.key === filter)?.label}{#if channel !== 'all'}{' · '}{channelTitle[channel]}{/if} · <span class="tabular-nums">{(view === 'links' ? rows.length : groups.length).toLocaleString()}</span></span>
+              <!-- Same look as the video pane's Links | Description switcher. -->
+              <div class="border-input bg-background ml-1 inline-flex h-7 shrink-0 items-center rounded-md border p-0.5" role="tablist" aria-label="List">
+                {#each [['links', 'Links'], ['videos', 'Videos']] as const as [k, text] (k)}
+                  <button
+                    role="tab"
+                    aria-selected={view === k}
+                    class="flex h-full items-center rounded-[4px] px-2 text-xs font-medium transition-colors duration-150 {view === k
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'}"
+                    onclick={() => setView(k)}>{text}</button
+                  >
+                {/each}
               </div>
+              <div class="flex-1"></div>
               <Button size="icon-sm" variant="ghost" aria-label="Search" title="Search" onclick={() => (searching = true)}><Search /></Button>
             {/if}
 
             <DropdownMenu.Root>
               <DropdownMenu.Trigger>
                 {#snippet child({ props })}
-                  <Button {...props} size="icon-sm" variant="ghost" aria-label="View: {view === 'links' ? 'Links' : 'Videos'}" title="View">
-                    {#if view === 'links'}<Link2 />{:else}<Clapperboard />{/if}
-                  </Button>
-                {/snippet}
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Content align="end" class="w-56">
-                <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Show</DropdownMenu.Label>
-                <DropdownMenu.RadioGroup value={view} onValueChange={(v) => ((view = v as 'links' | 'videos'), (limit = PAGE))}>
-                  <DropdownMenu.RadioItem value="links"><Link2 /> Links <span class="text-muted-foreground ml-auto text-xs tabular-nums">{rows.length.toLocaleString()}</span></DropdownMenu.RadioItem>
-                  <DropdownMenu.RadioItem value="videos"><Clapperboard /> Videos <span class="text-muted-foreground ml-auto text-xs tabular-nums">{groups.length.toLocaleString()}</span></DropdownMenu.RadioItem>
-                </DropdownMenu.RadioGroup>
-              </DropdownMenu.Content>
-            </DropdownMenu.Root>
-
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger>
-                {#snippet child({ props })}
-                  <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Filter by status: {FILTERS.find((f) => f.key === filter)?.label}" title="Filter by status">
+                  <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Filter by status: {filterLabel}" title="Filter by status">
                     <ListFilter />{#if filter !== 'attention'}<span class="bg-foreground absolute top-1 right-1 size-1.5 rounded-full"></span>{/if}
                   </Button>
                 {/snippet}
@@ -424,11 +430,21 @@
               </DropdownMenu.Root>
             {/if}
 
+            {#if !stacked}
+              <Button size="icon-sm" variant="ghost" aria-label="Collapse the list" title="Collapse the list (focus on one item)" onclick={() => (layout.listCollapsed.value = true)}><PanelLeftClose /></Button>
+            {/if}
+          </div>
+
+          <!-- What the list shows, and the sort order for links. -->
+          <div class="text-muted-foreground flex h-8 flex-none items-center gap-2 border-b pr-1.5 pl-3 text-xs">
+            <span class="min-w-0 flex-1 truncate">
+              {filterLabel}{#if channel !== 'all'}{' · '}{channelTitle[channel]}{/if} · <span class="tabular-nums">{(view === 'links' ? rows.length : groups.length).toLocaleString()}</span>
+            </span>
             {#if view === 'links'}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger>
                   {#snippet child({ props })}
-                    <Button {...props} size="icon-sm" variant="ghost" aria-label="Sort: {sort === 'az' ? 'A to Z' : 'Most videos'}" title="Sort"><ArrowUpDown /></Button>
+                    <Button {...props} size="xs" variant="ghost" class="text-muted-foreground shrink-0 font-normal" aria-label="Sort: {sortLabel}">{sortLabel} <ChevronDown class="opacity-60" /></Button>
                   {/snippet}
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Content align="end" class="w-48">
@@ -538,18 +554,18 @@
         </section>
       {/if}
 
-      {#if !stacked}
+      {#if !stacked && !collapsed}
         <Resizer bind:size={layout.listWidth.value} min={LIST_MIN} max={listMax} initial={340} label="Resize the list" />
       {/if}
 
       <!-- Content pane -->
       {#if !stacked || detailOpen}
         {@const back = stacked ? () => (detailOpen = false) : null}
+        {@const expand = collapsed ? () => (layout.listCollapsed.value = false) : null}
         <section class="min-h-0 min-w-0 flex-1" aria-label={view === 'links' ? 'Link' : 'Video'}>
           {#if view === 'links' && currentLink}
-            <LinkDetail row={currentLink} {channelTitle} canRecheck={!scanning && left.rechecks > 0} onback={back} />
+            <LinkDetail row={currentLink} {channelTitle} canRecheck={!scanning && left.rechecks > 0} onback={back} onexpand={expand} onprev={step(around.prev)} onnext={step(around.next)} />
           {:else if view === 'videos' && currentGroup}
-            {@const next = nextToFix}
             <VideoDetail
               group={currentGroup}
               bind:tab
@@ -557,8 +573,10 @@
               {channelTitle}
               multiChannel={report.channels.length > 1}
               onlocate={locate}
-              onnext={next ? () => pick('video', next) : null}
               onback={back}
+              onexpand={expand}
+              onprev={step(around.prev)}
+              onnext={step(around.next)}
             />
           {:else if !stacked}
             <div class="text-muted-foreground flex h-full items-center justify-center p-6 text-center text-sm">

@@ -1,10 +1,11 @@
 <script lang="ts">
   // The report's content pane for the video picked in the Videos list: its title, chips and
-  // Studio links, then two tabs. Links lists every link in the video with Plan fix and a locate
+  // Studio links, then two tabs, with arrows to the previous and next video in the list. Links lists every link in the video with Plan fix and a locate
   // button; Description (DescriptionPanel) is the description with fixes applied, to copy into
   // YouTube Studio. Report owns which video and tab are open, and the locate requests.
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-  import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import PanelLeftOpen from '@lucide/svelte/icons/panel-left-open';
+  import ItemArrows from './ItemArrows.svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import LocateFixed from '@lucide/svelte/icons/locate-fixed';
   import FileText from '@lucide/svelte/icons/file-text';
@@ -24,8 +25,10 @@
     channelTitle,
     multiChannel,
     onlocate,
+    onprev,
     onnext,
     onback,
+    onexpand,
   }: {
     group: VideoGroup;
     tab: 'links' | 'description';
@@ -34,10 +37,13 @@
     channelTitle: Record<string, string>;
     multiChannel: boolean;
     onlocate: (url: string) => void;
-    /** Opens the next video with problems; null hides the button. */
+    /** The previous and next video in the list; null disables that arrow. */
+    onprev: (() => void) | null;
     onnext: (() => void) | null;
     /** Back to the list, when the panes are stacked (narrow windows); null hides it. */
     onback: (() => void) | null;
+    /** Shows the collapsed list again; null hides it. */
+    onexpand: (() => void) | null;
   } = $props();
 
   const v = $derived(group.video);
@@ -49,6 +55,9 @@
   <header class="flex flex-none flex-wrap items-start gap-x-3 gap-y-1 border-b px-4 py-3">
     {#if onback}
       <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Back to the list" onclick={onback}><ArrowLeft /></Button>
+    {/if}
+    {#if onexpand}
+      <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Show the list" title="Show the list" onclick={onexpand}><PanelLeftOpen /></Button>
     {/if}
     <img
       src="https://i.ytimg.com/vi/{v.id}/mqdefault.jpg"
@@ -98,9 +107,7 @@
     </div>
     <span class="whitespace-nowrap"><span class="text-foreground tabular-nums">{group.links.length}</span> {group.links.length === 1 ? 'link' : 'links'}</span>
     <span class="whitespace-nowrap"><span class="text-foreground tabular-nums">{group.problems.length}</span> to fix</span>
-    {#if onnext}
-      <Button size="xs" variant="ghost" class="ml-auto" onclick={onnext} title="Open the next video with links to fix">Next to fix <ArrowRight /></Button>
-    {/if}
+    <div class="-my-1 -mr-2 ml-auto"><ItemArrows {onprev} {onnext} noun="video" /></div>
   </div>
 
   <div class="min-h-0 flex-1">

@@ -71,12 +71,14 @@ export function stored<T>(key: string, fallback: T): { value: T } {
 
 /**
  * The app layout the user has set, remembered per browser: the sidebar ('auto' is a rail in
- * narrow windows and full width otherwise), and the widths (px) of the report's list pane and of
- * the links list beside a description. Widths are clamped to fit wherever they're used.
+ * narrow windows and full width otherwise), the widths (px) of the report's list pane and of the
+ * links list beside a description, and whether the list pane is collapsed (focus mode). Widths
+ * are clamped to fit wherever they're used.
  */
 export const layout = {
   sidebar: stored<'auto' | 'open' | 'rail'>('sidebar', 'auto'),
   listWidth: stored('listWidth', 340),
+  listCollapsed: stored('listCollapsed', false),
   linksWidth: stored('linksWidth', 256),
 };
 

@@ -4,7 +4,8 @@
   // rail; `layout.sidebar` remembers the choice, and 'auto' (the default) is a rail in windows
   // narrower than 1100px, e.g. with YouTube Studio beside it. Resting on the rail for half a
   // second flies the full sidebar out over the page (nothing underneath moves) until the pointer
-  // leaves. The toggle sits in the logo's row, so collapsing or expanding shifts nothing.
+  // leaves, and shrinks back the same way. The toggle sits in the logo's row, so collapsing or
+  // expanding shifts nothing.
   // Reads the user, workspace and route from the `app` store.
   import { MediaQuery } from 'svelte/reactivity';
   import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
@@ -68,63 +69,59 @@
       ...(me.isAdmin ? [['admin', 'Admin', Wrench]] : []),
     ].filter(([k]) => me.workspaces.length || k === 'admin') as [Route, string, typeof Tv][],
   );
+  // Every item keeps one layout at both widths (icon in a fixed spot, label after it), so
+  // collapsing just clips the labels as the sidebar narrows, and nothing jumps.
   const item = (on = false) =>
-    `flex h-8 items-center gap-2.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-      full ? 'w-full px-2' : 'w-8 justify-center'
-    } ${on ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'}`;
+    `flex h-8 w-full shrink-0 items-center gap-2.5 rounded-md px-2 text-sm font-medium whitespace-nowrap transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+      on ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+    }`;
+  const label = $derived(`truncate transition-opacity duration-200 ${full ? 'opacity-100' : 'opacity-0'}`);
 </script>
 
 <!-- The outer box holds the rail's (or full sidebar's) place in the layout; the inner one is what
      widens, over the page, when it flies out. -->
 <div class="relative h-full shrink-0 {rail ? 'w-12' : 'w-52'}">
 <aside
-  class="bg-sidebar absolute inset-y-0 left-0 z-40 flex flex-col gap-1 overflow-hidden border-r py-2 transition-[width,box-shadow] duration-150 {full
-    ? 'w-52 px-2'
-    : 'w-12 items-center'} {flying ? 'shadow-xl' : ''}"
+  class="bg-sidebar absolute inset-y-0 left-0 z-40 flex flex-col gap-1 overflow-hidden border-r px-2 py-2 transition-[width,box-shadow] duration-200 ease-out {full
+    ? 'w-52'
+    : 'w-12'} {flying ? 'shadow-xl' : ''}"
   aria-label="App"
   onpointerenter={enter}
   onpointerleave={leave}
 >
-  <div class="group/logo mb-1 flex h-9 w-full items-center gap-2 {full ? 'px-1' : 'justify-center'}">
+  <div class="group/logo relative mb-1 flex h-9 w-full shrink-0 items-center gap-1.5">
+    <a href="#/report" class="relative flex min-w-0 items-center gap-1.5 font-semibold whitespace-nowrap" tabindex={rail && !flying ? -1 : undefined}>
+      <span class="flex size-8 shrink-0 items-center justify-center"><img src={brand.logo} alt={brand.name || 'Link Checker'} class="size-7 rounded-md transition-opacity duration-150 {rail && !flying ? 'group-hover/logo:opacity-0 group-focus-within/logo:opacity-0' : ''}" /></span>
+      <span class={label}>Link Checker</span>
+    </a>
     {#if rail && !flying}
       <!-- The rail's logo turns into the expand button on hover, so the button takes no row of its own. -->
-      <button class="relative flex size-8 items-center justify-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50" aria-label="Expand sidebar" title="Expand sidebar" onclick={() => (layout.sidebar.value = 'open')}>
-        <img src={brand.logo} alt="" class="size-7 rounded-md transition-opacity duration-150 group-hover/logo:opacity-0 group-focus-within/logo:opacity-0" />
-        <PanelLeftOpen class="text-muted-foreground absolute size-4 opacity-0 transition-opacity duration-150 group-hover/logo:opacity-100 group-focus-within/logo:opacity-100" />
-      </button>
-    {:else}
-      <a href="#/report" class="flex min-w-0 items-center gap-2 font-semibold">
-        <img src={brand.logo} alt={brand.name || 'Link Checker'} class="size-7 shrink-0 rounded-md" />
-        <span class="truncate">Link Checker</span>
-      </a>
-      {#if rail}
-        <button class="{item()} ml-auto !w-8 !justify-center !px-0" aria-label="Keep the sidebar open" title="Keep the sidebar open" onclick={() => (layout.sidebar.value = 'open')}>
-          <PanelLeftOpen class="size-4" />
-        </button>
-      {:else}
-        <button class="{item()} ml-auto !w-8 !justify-center !px-0" aria-label="Collapse sidebar" title="Collapse sidebar" onclick={() => (layout.sidebar.value = 'rail')}>
-          <PanelLeftClose class="size-4" />
-        </button>
-      {/if}
+      <button
+        class="text-muted-foreground absolute top-0.5 left-0 flex size-8 items-center justify-center rounded-md opacity-0 transition-opacity duration-150 outline-none group-hover/logo:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
+        aria-label="Expand sidebar"
+        title="Expand sidebar"
+        onclick={() => (layout.sidebar.value = 'open')}><PanelLeftOpen class="size-4" /></button
+      >
     {/if}
+    <button
+      class="{item()} ml-auto !w-8 !justify-center !px-0 {label}"
+      tabindex={full ? undefined : -1}
+      aria-label={rail ? 'Keep the sidebar open' : 'Collapse sidebar'}
+      title={rail ? 'Keep the sidebar open' : 'Collapse sidebar'}
+      onclick={() => (layout.sidebar.value = rail ? 'open' : 'rail')}
+    >
+      {#if rail}<PanelLeftOpen class="size-4" />{:else}<PanelLeftClose class="size-4" />{/if}
+    </button>
   </div>
 
   {#if me.workspaces.length > 1}
     <DropdownMenu.Root onOpenChange={menuChange}>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <button
-            {...props}
-            class="{!full ? item() : 'border-input bg-background hover:bg-muted/60 flex h-8 w-full items-center gap-2 rounded-md border px-2 text-sm transition-colors duration-150'} mb-1"
-            title={!full ? (current?.name ?? 'Workspace') : undefined}
-            aria-label="Workspace: {current?.name ?? 'none'}"
-          >
-            {#if !full}
-              <span class="bg-muted flex size-6 items-center justify-center rounded text-xs font-semibold uppercase">{current?.name[0] ?? '?'}</span>
-            {:else}
-              <span class="min-w-0 flex-1 truncate text-left">{current?.name ?? 'Workspace'}</span>
-              <ChevronsUpDown class="text-muted-foreground size-3.5 shrink-0" />
-            {/if}
+          <button {...props} class="{item()} mb-1 !gap-1.5 !px-1" title={!full ? (current?.name ?? 'Workspace') : undefined} aria-label="Workspace: {current?.name ?? 'none'}">
+            <span class="bg-muted text-foreground flex size-6 shrink-0 items-center justify-center rounded text-xs font-semibold uppercase">{current?.name[0] ?? '?'}</span>
+            <span class="{label} min-w-0 flex-1 text-left">{current?.name ?? 'Workspace'}</span>
+            <ChevronsUpDown class="size-3.5 shrink-0 {label}" />
           </button>
         {/snippet}
       </DropdownMenu.Trigger>
@@ -141,31 +138,30 @@
     </DropdownMenu.Root>
   {/if}
 
-  <nav class="flex w-full flex-col gap-0.5 {full ? '' : 'items-center'}">
-    {#each nav as [key, label, Icon] (key)}
+  <nav class="flex w-full flex-col gap-0.5">
+    {#each nav as [key, text, Icon] (key)}
       <a
         href="#/{key}"
         class={item(app.route === key)}
         aria-current={app.route === key ? 'page' : undefined}
-        aria-label={full ? undefined : label}
-        title={full ? undefined : label}
-        onclick={() => go(key)}><Icon class="size-4 shrink-0" />{#if full}{label}{/if}</a
+        title={full ? undefined : text}
+        onclick={() => go(key)}><Icon class="size-4 shrink-0" /><span class={label}>{text}</span></a
       >
     {/each}
   </nav>
 
   <div class="flex-1"></div>
 
-  <button class={item()} aria-label={full ? undefined : 'Help'} title={full ? undefined : 'Help'} onclick={() => ((flying = false), (ui.help = true))}>
-    <CircleHelp class="size-4 shrink-0" />{#if full}Help{/if}
+  <button class={item()} title={full ? undefined : 'Help'} onclick={() => ((flying = false), (ui.help = true))}>
+    <CircleHelp class="size-4 shrink-0" /><span class={label}>Help</span>
   </button>
   <DropdownMenu.Root onOpenChange={menuChange}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <!-- The email shows only inside the menu, never on screen. -->
-        <button {...props} class={item()} aria-label="Account and settings" title={full ? undefined : 'Account and settings'}>
+        <button {...props} class="{item()} !gap-1.5 !px-1" aria-label="Account and settings" title={full ? undefined : 'Account and settings'}>
           <span class="bg-primary text-primary-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold uppercase">{me.email[0]}</span>
-          {#if full}Account{/if}
+          <span class={label}>Account</span>
         </button>
       {/snippet}
     </DropdownMenu.Trigger>

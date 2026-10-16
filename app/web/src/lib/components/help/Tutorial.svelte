@@ -70,7 +70,7 @@
       video: 'descriptions',
       paragraphs: [
         'Switch the list to Videos and pick a video (or click Fix description on a link). Its Description tab shows the description with your planned fixes applied and every change highlighted, with the video’s links beside it.',
-        'Tweak it if you like, click Copy & open Studio, and paste it into the description there. Next to fix moves you along. Link Checker never changes anything on YouTube itself. It works in half a screen, so YouTube Studio can sit beside it; drag the dividers to resize the panes.',
+        'Tweak it if you like, click Copy & open Studio, and paste it into the description there. The up and down arrows move to the next video, and the collapse button hides the list so you can focus on one. Link Checker never changes anything on YouTube itself. It works in half a screen, so YouTube Studio can sit beside it; drag the dividers to resize the panes.',
         'Click any link in the text to change or remove it. You choose whether that applies to every video with the link, just this channel’s videos, or only this one.',
         'Changed a line that’s in other videos too, like a sponsor or footer? Click the save icon above the editor, and Link Checker finds every other video with the same line and offers to change it there as well.',
       ],
