@@ -5,3 +5,7 @@ dist/
 # Your deployment's own config and branding (start from wrangler.example.jsonc / .env.example)
 wrangler.jsonc
 web/public/brand/
+# Demo recording workspace (demo/record.mjs): database, build and frames
+demo/.state/
+demo/dist/
+demo/.frames/

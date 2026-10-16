@@ -323,6 +323,23 @@ async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; 
 }
 
 /** The workspace's member list; visible to every member. */
+/**
+ * Every saved description for this workspace's videos, for the Excel export's Descriptions sheet.
+ * Read only from the database (saved by full scans and the Fix drawer), so it spends no quota.
+ * Kept out of the report payload because descriptions are large and only exports need them.
+ */
+async function descriptions(env: Env, ws: WorkspaceRow) {
+  const rows = (
+    await env.DB.prepare(
+      `SELECT v.id, v.description AS d, v.description_at AS at FROM videos v
+       JOIN workspace_channels wc ON wc.channel_id = v.channel_id WHERE wc.workspace_id = ?`,
+    )
+      .bind(ws.id)
+      .all<{ id: string; d: string | null; at: string | null }>()
+  ).results;
+  return { descriptions: rows };
+}
+
 async function members(env: Env, ws: WorkspaceRow) {
   return (
     await env.DB.prepare(
@@ -419,12 +436,16 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
         // Only videos of this workspace's channels, so the route can't be used to spend quota on anything else.
         if (!owned) throw new HttpError(404, 'Video not found in this workspace');
         try {
-          return json({ description: await fetchDescription(env, seg[3]) });
+          const description = await fetchDescription(env, seg[3]);
+          // Keep the saved copy (used by exports) as fresh as what the drawer just showed.
+          await env.DB.prepare('UPDATE videos SET description = ?, description_at = ? WHERE id = ?').bind(description, now(), seg[3]).run();
+          return json({ description });
         } catch (e) {
           if (e instanceof QuotaError) throw new HttpError(429, e.message);
           throw e;
         }
       }
+      if (sub === 'descriptions' && method === 'GET') return json(await descriptions(env, ws));
       if (sub === 'fixes' && method === 'POST') return json(await setFix(env, ws, me, await body(req)));
       if (sub === 'rules' && method === 'POST') return json(await addRule(env, ws, me, await body(req)));
       if (sub === 'rules' && seg[3] && method === 'DELETE') {

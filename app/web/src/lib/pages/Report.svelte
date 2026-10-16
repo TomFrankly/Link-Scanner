@@ -25,6 +25,7 @@
   import { toast } from 'svelte-sonner';
   import BreakdownChart from '$lib/components/BreakdownChart.svelte';
   import { copyForSheets, downloadCsv, downloadXlsx } from '$lib/export';
+  import { api } from '$lib/api';
   import { duration, runEstimates } from '$lib/estimate';
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
@@ -125,10 +126,14 @@
   /** Exports the rows currently in the table (see lib/export.ts for the formats). */
   async function exportAs(kind: 'csv' | 'xlsx' | 'sheets') {
     try {
-      if (kind === 'csv') downloadCsv(rows, channelTitle, fileBase);
-      else if (kind === 'xlsx') await downloadXlsx(rows, channelTitle, fileBase);
-      else {
-        await copyForSheets(rows, channelTitle);
+      if (kind === 'csv') downloadCsv(rows, channelTitle, data.fixes, fileBase);
+      else if (kind === 'xlsx') {
+        // Saved descriptions come from the database (full scans save them), so no quota is spent.
+        const res = await api<{ descriptions: { id: string; d: string | null; at: string | null }[] }>(`/w/${app.wsId}/descriptions`);
+        const descriptions = new Map(res.descriptions.map((x) => [x.id, { d: x.d, at: x.at }]));
+        await downloadXlsx(rows, channelTitle, data.fixes, fileBase, { allRows: data.rows, descriptions });
+      } else {
+        await copyForSheets(rows, channelTitle, data.fixes);
         toast.success(`Copied ${rows.length.toLocaleString()} rows. In Google Sheets, click cell A1 and paste.`);
       }
     } catch (e) {

@@ -52,7 +52,7 @@
     {
       Icon: Database,
       title: 'A small database',
-      text: 'Cloudflare’s D1 database stores the video list, the links found in each video, and the latest result for each link.',
+      text: 'Cloudflare’s D1 database stores the video list, each video’s description (for exports), the links found in it, and the latest result for each link.',
     },
   ];
 

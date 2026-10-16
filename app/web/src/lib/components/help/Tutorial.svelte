@@ -6,6 +6,7 @@
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import { CATEGORY } from '$lib/categories';
   import { go, type Route } from '$lib/store.svelte';
+  import { mode } from 'mode-watcher';
 
   let { onDone, onNavigate }: { onDone: () => void; onNavigate: () => void } = $props();
 
@@ -16,11 +17,14 @@
     badges?: Category[];
     /** A page this step is about, offered as a "take me there" button. */
     page?: { route: Route; label: string };
+    /** A looping clip in web/public/tour/ (recorded by demo/record.mjs), by file name without extension. */
+    video?: string;
   }
 
   const STEPS: Step[] = [
     {
       title: 'Add your channels',
+      video: 'channels',
       paragraphs: [
         'Start on the Channels page. Paste a channel’s @handle or its YouTube link, and it’s added to your workspace.',
         'Everyone in a workspace sees the same channels and results, so a team can share the work.',
@@ -29,6 +33,7 @@
     },
     {
       title: 'Run a scan',
+      video: 'scan',
       paragraphs: [
         'Click Scan next to a new channel, or use Rescan → Full scan to check every channel. Link Checker reads each video’s description, pulls out every link, and visits it.',
         'A banner shows progress, and the scan keeps going if you close the tab. Links are checked slowly on purpose, so websites don’t mistake the scan for an attack. A big channel can take a while.',
@@ -37,6 +42,7 @@
     },
     {
       title: 'Read the report',
+      video: 'report',
       paragraphs: [
         'The headline counts the links that need your attention. Each link gets one status. Hover a status anywhere in the app to see what it means.',
       ],
@@ -44,6 +50,7 @@
     },
     {
       title: 'Mark what’s expected',
+      video: 'accept',
       paragraphs: [
         'Some redirects are fine: a company renamed itself, or the link is one of your own short links. Click Accept on a “Domain changed” link and every link making that same move counts as OK.',
         'The Exceptions page holds these rules: accepted redirects, redirector domains (short-link services you control), and links to ignore entirely.',
@@ -52,6 +59,7 @@
     },
     {
       title: 'Plan your fixes',
+      video: 'fix',
       paragraphs: [
         'Open the ⋯ menu on a link to plan a fix: remove the link, or give it a replacement.',
         'A plan belongs to the link, not one video, so it applies everywhere that link appears.',
@@ -59,6 +67,7 @@
     },
     {
       title: 'Fix the descriptions',
+      video: 'descriptions',
       paragraphs: [
         'Switch the report to Videos, or expand a link and click Fix description. A drawer opens with the description, your planned fixes applied, and every change highlighted.',
         'Tweak it if you like, click Copy, and paste it into YouTube Studio. Link Checker never changes anything on YouTube itself.',
@@ -66,13 +75,16 @@
     },
     {
       title: 'Share and export',
+      video: 'share',
       paragraphs: [
         'Workspace owners can add teammates on the Members page, using any email address. They sign in with a one-time code sent to that address.',
-        'Export sends whatever the report is showing to Excel, a CSV file, or Google Sheets.',
+        'Export sends whatever the report is showing to Excel, a CSV file, or Google Sheets, including each link’s planned fix. The Excel file also has every video’s description, with your planned fixes applied and ready to paste.',
       ],
       page: { route: 'members', label: 'Open Members' },
     },
   ];
+
+  const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   let index = $state(0);
   const step = $derived(STEPS[index]);
@@ -86,6 +98,24 @@
 
 <div class="flex min-h-full flex-col">
   <div class="flex-1 p-4">
+    {#if step.video}
+      {@const clip = `/tour/${step.video}${mode.current === 'light' ? '-light' : ''}`}
+      <!-- Muted, looping clip like a GIF, matching the light or dark theme. With reduced motion it waits for a click to play. -->
+      {#key clip}
+        <video
+          class="bg-muted mb-4 aspect-[8/5] w-full rounded-lg border object-cover"
+          poster="{clip}.jpg"
+          autoplay={!reducedMotion}
+          controls={reducedMotion}
+          loop
+          muted
+          playsinline
+          aria-label="Demo: {step.title}"
+        >
+          <source src="{clip}.mp4" type="video/mp4" />
+        </video>
+      {/key}
+    {/if}
     <div class="text-muted-foreground mb-1 text-xs tabular-nums">Step {index + 1} of {STEPS.length}</div>
     <h3 class="mb-3 text-lg font-semibold tracking-tight">{step.title}</h3>
     <div class="space-y-3 leading-relaxed">

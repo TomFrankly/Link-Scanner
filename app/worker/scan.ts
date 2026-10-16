@@ -278,15 +278,17 @@ async function handleFetch(env: Env, job: Extract<Job, { t: 'fetch' }>) {
     const res = await fetchUploadsPage(env, ch.uploads_playlist, job.pageToken);
     next = page < MAX_PAGES_PER_CHANNEL ? res.next : undefined;
     const seen = now();
-    const vids = res.videos.map((v) => ({ id: v.id, t: v.title, p: v.publishedAt }));
+    // `d` is the description, saved for exports; the scan downloads it anyway to find links.
+    const vids = res.videos.map((v) => ({ id: v.id, t: v.title, p: v.publishedAt, d: v.description }));
     const links = res.videos.flatMap((v) => extractUrls(v.description, SKIP_DOMAINS).map((u) => ({ v: v.id, u })));
     // json_each keeps each write to one statement and one bound parameter (D1 allows 100).
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO videos (id, channel_id, title, published_at, last_seen)
-         SELECT value->>'id', ?1, value->>'t', value->>'p', ?2 FROM json_each(?3) WHERE true
+        `INSERT INTO videos (id, channel_id, title, published_at, last_seen, description, description_at)
+         SELECT value->>'id', ?1, value->>'t', value->>'p', ?2, value->>'d', ?2 FROM json_each(?3) WHERE true
          ON CONFLICT (id) DO UPDATE SET channel_id = excluded.channel_id, title = excluded.title,
-           published_at = excluded.published_at, last_seen = excluded.last_seen`,
+           published_at = excluded.published_at, last_seen = excluded.last_seen,
+           description = excluded.description, description_at = excluded.description_at`,
       ).bind(ch.id, seen, JSON.stringify(vids)),
       env.DB.prepare("DELETE FROM video_links WHERE video_id IN (SELECT value->>'id' FROM json_each(?))").bind(JSON.stringify(vids)),
       env.DB.prepare("INSERT OR IGNORE INTO video_links (video_id, url) SELECT value->>'v', value->>'u' FROM json_each(?)").bind(

@@ -34,6 +34,18 @@ npm run dev
 
 `DEV_AUTH_EMAIL` in `.dev.vars` stands in for Access on localhost only. To act as another user locally, send an `x-dev-email` header. `npm run dev:web` serves the UI with hot reload and proxies `/api` to `wrangler dev` on port 8787.
 
+### Tour videos
+
+The Help tour's looping clips (`web/public/tour/`) are recorded by a script, so they can be re-made after the UI changes:
+
+```bash
+npm run demo:record                  # all clips, dark
+THEME=light npm run demo:record      # the -light versions
+npm run demo:record -- accept fix    # just some clips
+```
+
+It runs a separate local copy of the app (`demo/wrangler.demo.jsonc`, port 8790) with made-up data from `demo/seed.sql`, all on the reserved `.example` domain, so no real channel or link is ever filmed. Playwright drives Chromium with a drawn cursor and zooms, and ffmpeg encodes the result. You'll need `ffmpeg` and a Chromium for Playwright (`npx playwright install chromium`, or set `CHROMIUM_PATH`). Each clip's storyboard is a short function in `demo/record.mjs`.
+
 ## Your own config
 
 Each deployment keeps its own settings in gitignored files, so pulling updates never overwrites them:

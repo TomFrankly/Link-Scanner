@@ -42,7 +42,7 @@
 <Dialog.Root bind:open>
   <!-- The tour and explainer get a fixed height, so the dialog doesn't jump around between steps. -->
   <Dialog.Content
-    class="flex max-h-[min(44rem,calc(100dvh-2rem))] flex-col gap-0 p-0 sm:max-w-xl {screen === 'home' ? '' : 'h-[min(36rem,calc(100dvh-2rem))]'}"
+    class="flex max-h-[min(44rem,calc(100dvh-2rem))] flex-col gap-0 p-0 sm:max-w-xl {screen === 'home' ? '' : 'h-[min(44rem,calc(100dvh-2rem))]'}"
   >
     <Dialog.Header class="flex-row items-center gap-2 border-b px-4 py-3 pr-12">
       {#if screen !== 'home'}

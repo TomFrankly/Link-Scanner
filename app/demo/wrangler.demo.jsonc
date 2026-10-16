@@ -1,0 +1,32 @@
+// A local-only copy of the app for recording the Help tour's videos (see demo/record.mjs).
+// It never deploys: it runs under `wrangler dev` with its own database in demo/.state,
+// filled from demo/seed.sql with made-up channels and links, so no real data is filmed.
+// Paths are relative to this file.
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "link-checker-demo",
+  "main": "../worker/index.ts",
+  "compatibility_date": "2025-06-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "ADMIN_EMAIL": "admin@example.com",
+    // The demo user (demo@example.com) owns the seeded workspace.
+    "OWNER_DOMAINS": "example.com",
+    "GLOBAL_DAILY_UNITS": "8000",
+    "APP_URL": "",
+    "NOTIFY_FROM": "",
+    "EXTRA_ACCEPTED_REDIRECTS": "",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "ytlinks-demo", "migrations_dir": "../migrations" }],
+  "queues": {
+    "producers": [{ "queue": "ytlinks-demo-jobs", "binding": "JOBS" }],
+    "consumers": [{ "queue": "ytlinks-demo-jobs", "max_batch_size": 1, "max_batch_timeout": 1, "max_concurrency": 1 }]
+  }
+}
