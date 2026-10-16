@@ -15,8 +15,8 @@
 //
 // Workspace scoping: workspaceFor checks membership once per request, and every query
 // after that includes `workspace_id = ?` (directly or via workspace_channels), so an id
-// from the URL or body can never reach another workspace's rows. The one shared table is
-// `links` (check results per URL), which is only read for URLs that are in the workspace.
+// from the URL or body can never reach another workspace's rows. Check results (`links`)
+// are per workspace too. Only public YouTube data (channels, videos, their links) is shared.
 //
 // Cross-site requests: every mutating route is a POST with a JSON body, a PATCH or a DELETE.
 // A browser won't send any of those from another site without a CORS preflight, and this
@@ -163,7 +163,7 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
     env.DB.prepare(`SELECT vl.video_id AS v, vl.url AS u FROM video_links vl JOIN videos v ON v.id = vl.video_id ${inWs}`).bind(ws.id),
     env.DB.prepare(
       `SELECT url, outcome, status, final_url AS finalUrl, chain, parked, note, prev_final_url AS prevFinalUrl, checked_at AS checkedAt
-       FROM links WHERE url IN (SELECT vl.url FROM video_links vl JOIN videos v ON v.id = vl.video_id ${inWs})`,
+       FROM links WHERE workspace_id = ?1 AND url IN (SELECT vl.url FROM video_links vl JOIN videos v ON v.id = vl.video_id ${inWs})`,
     ).bind(ws.id),
     env.DB.prepare(
       'SELECT id, type, value, value2, note, added_by AS addedBy, added_at AS addedAt FROM rules WHERE workspace_id = ?1 ORDER BY id',

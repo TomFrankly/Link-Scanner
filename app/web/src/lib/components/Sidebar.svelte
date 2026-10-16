@@ -26,6 +26,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { app, go, layout, switchWorkspace, ui, type Route } from '$lib/store.svelte';
   import { brand } from '$lib/brand';
+  import Hint from './Hint.svelte';
 
   const me = $derived(app.me!);
   const current = $derived(me.workspaces.find((w) => w.id === app.wsId));
@@ -96,35 +97,47 @@
     </a>
     {#if rail && !flying}
       <!-- The rail's logo turns into the expand button on hover, so the button takes no row of its own. -->
-      <button
-        class="text-muted-foreground absolute top-0.5 left-0 flex size-8 items-center justify-center rounded-md opacity-0 transition-opacity duration-150 outline-none group-hover/logo:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
-        aria-label="Expand sidebar"
-        title="Expand sidebar"
-        onclick={() => (layout.sidebar.value = 'open')}><PanelLeftOpen class="size-4" /></button
-      >
+      <Hint text="Expand sidebar" side="right">
+        {#snippet children(tip)}
+          <button
+            {...tip}
+            class="text-muted-foreground absolute top-0.5 left-0 flex size-8 items-center justify-center rounded-md opacity-0 transition-opacity duration-150 outline-none group-hover/logo:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
+            aria-label="Expand sidebar"
+            onclick={() => (layout.sidebar.value = 'open')}><PanelLeftOpen class="size-4" /></button
+          >
+        {/snippet}
+      </Hint>
     {/if}
-    <button
-      class="{item()} ml-auto !w-8 !justify-center !px-0 {label}"
-      tabindex={full ? undefined : -1}
-      aria-label={rail ? 'Keep the sidebar open' : 'Collapse sidebar'}
-      title={rail ? 'Keep the sidebar open' : 'Collapse sidebar'}
-      onclick={() => (layout.sidebar.value = rail ? 'open' : 'rail')}
-    >
-      {#if rail}<PanelLeftOpen class="size-4" />{:else}<PanelLeftClose class="size-4" />{/if}
-    </button>
+    <Hint text={full ? (rail ? 'Keep the sidebar open' : 'Collapse sidebar') : ''} side="bottom">
+      {#snippet children(tip)}
+        <button
+          {...tip}
+          class="{item()} ml-auto !w-8 !justify-center !px-0 {label}"
+          tabindex={full ? undefined : -1}
+          aria-label={rail ? 'Keep the sidebar open' : 'Collapse sidebar'}
+          onclick={() => (layout.sidebar.value = rail ? 'open' : 'rail')}
+        >
+          {#if rail}<PanelLeftOpen class="size-4" />{:else}<PanelLeftClose class="size-4" />{/if}
+        </button>
+      {/snippet}
+    </Hint>
   </div>
 
   {#if me.workspaces.length > 1}
     <DropdownMenu.Root onOpenChange={menuChange}>
-      <DropdownMenu.Trigger>
+      <Hint text={full ? '' : (current?.name ?? 'Workspace')} side="right">
+        {#snippet children(tip)}
+      <DropdownMenu.Trigger {...tip}>
         {#snippet child({ props })}
-          <button {...props} class="{item()} mb-1 !gap-1.5 !px-1" title={!full ? (current?.name ?? 'Workspace') : undefined} aria-label="Workspace: {current?.name ?? 'none'}">
+          <button {...props} class="{item()} mb-1 !gap-1.5 !px-1" aria-label="Workspace: {current?.name ?? 'none'}">
             <span class="bg-muted text-foreground flex size-6 shrink-0 items-center justify-center rounded text-xs font-semibold uppercase">{current?.name[0] ?? '?'}</span>
             <span class="{label} min-w-0 flex-1 text-left">{current?.name ?? 'Workspace'}</span>
             <ChevronsUpDown class="size-3.5 shrink-0 {label}" />
           </button>
         {/snippet}
       </DropdownMenu.Trigger>
+        {/snippet}
+      </Hint>
       <DropdownMenu.Content align="start" side="bottom" class="w-64">
         <DropdownMenu.Label>Workspaces</DropdownMenu.Label>
         {#each me.workspaces as w (w.id)}
@@ -140,31 +153,43 @@
 
   <nav class="flex w-full flex-col gap-0.5">
     {#each nav as [key, text, Icon] (key)}
-      <a
-        href="#/{key}"
-        class={item(app.route === key)}
-        aria-current={app.route === key ? 'page' : undefined}
-        title={full ? undefined : text}
-        onclick={() => go(key)}><Icon class="size-4 shrink-0" /><span class={label}>{text}</span></a
-      >
+      <Hint text={full ? '' : text} side="right">
+        {#snippet children(tip)}
+          <a
+            {...tip}
+            href="#/{key}"
+            class={item(app.route === key)}
+            aria-current={app.route === key ? 'page' : undefined}
+            onclick={() => go(key)}><Icon class="size-4 shrink-0" /><span class={label}>{text}</span></a
+          >
+        {/snippet}
+      </Hint>
     {/each}
   </nav>
 
   <div class="flex-1"></div>
 
-  <button class={item()} title={full ? undefined : 'Help'} onclick={() => ((flying = false), (ui.help = true))}>
-    <CircleHelp class="size-4 shrink-0" /><span class={label}>Help</span>
-  </button>
+  <Hint text={full ? '' : 'Help'} side="right">
+    {#snippet children(tip)}
+      <button {...tip} class={item()} onclick={() => ((flying = false), (ui.help = true))}>
+        <CircleHelp class="size-4 shrink-0" /><span class={label}>Help</span>
+      </button>
+    {/snippet}
+  </Hint>
   <DropdownMenu.Root onOpenChange={menuChange}>
-    <DropdownMenu.Trigger>
+    <Hint text={full ? '' : 'Account and settings'} side="right">
+      {#snippet children(tip)}
+    <DropdownMenu.Trigger {...tip}>
       {#snippet child({ props })}
         <!-- The email shows only inside the menu, never on screen. -->
-        <button {...props} class="{item()} !gap-1.5 !px-1" aria-label="Account and settings" title={full ? undefined : 'Account and settings'}>
+        <button {...props} class="{item()} !gap-1.5 !px-1" aria-label="Account and settings">
           <span class="bg-primary text-primary-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold uppercase">{me.email[0]}</span>
           <span class={label}>Account</span>
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
+      {/snippet}
+    </Hint>
     <DropdownMenu.Content align="end" side={full ? 'top' : 'right'} class="w-56">
       <DropdownMenu.Label class="truncate font-normal">
         <div class="text-foreground truncate text-sm font-medium">{me.email}</div>

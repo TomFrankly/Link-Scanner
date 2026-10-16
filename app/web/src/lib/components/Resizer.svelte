@@ -52,7 +52,6 @@
   aria-valuemin={min}
   aria-valuemax={max}
   tabindex="0"
-  title="Drag to resize · double-click to reset"
   class="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize touch-none outline-none"
   onpointerdown={down}
   ondblclick={() => (size = clamp(initial))}

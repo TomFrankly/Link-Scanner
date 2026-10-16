@@ -38,6 +38,7 @@
   import Resizer from './Resizer.svelte';
   import { app, data, layout, removeTextEdit, setFix, ui } from '$lib/store.svelte';
   import { hasStudioTab, openStudio } from '$lib/studio';
+  import Hint from './Hint.svelte';
   import { applyFixes, FIXABLE, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
   import { applyTextEdits, editsFromHandEdit, splitLinkSwaps, type FoundEdit, type LinkSwap } from '$shared/textEdits';
 
@@ -296,13 +297,15 @@
           </div>
           <div class="mt-1 flex items-start gap-1">
             <a href={r.url} target="_blank" rel="noreferrer" class="min-w-0 flex-1 font-mono text-xs break-all hover:underline" title="Open in a new tab">{r.url}</a>
-            <button
-              type="button"
-              class="text-muted-foreground hover:text-foreground hover:bg-muted -my-0.5 shrink-0 rounded p-0.5 transition-colors duration-150"
-              aria-label="Show in description"
-              title="Show in description"
-              onclick={() => locate(r.url)}><LocateFixed class="size-3.5" /></button
-            >
+            <Hint text="Show in description">
+              {#snippet children(tip)}<button
+                {...tip}
+                type="button"
+                class="text-muted-foreground hover:text-foreground hover:bg-muted -my-0.5 shrink-0 rounded p-0.5 transition-colors duration-150"
+                aria-label="Show in description"
+                onclick={() => locate(r.url)}><LocateFixed class="size-3.5" /></button
+              >{/snippet}
+            </Hint>
           </div>
           <PlannedFix url={r.url} />
         </li>
@@ -318,7 +321,9 @@
               <div class="truncate font-mono text-xs" title={e.replace || e.find}>{preview(e.find, e.replace)}</div>
               <div class="text-muted-foreground text-xs">{e.videos ? `${e.videos.length} video${e.videos.length === 1 ? '' : 's'}` : 'Every video with these lines'}</div>
             </div>
-            <Button size="icon-xs" variant="ghost" aria-label="Remove saved edit" title="Remove this saved edit from every video it applies to" onclick={() => removeTextEdit(e.id)}><X /></Button>
+            <Hint text="Remove this saved edit from every video it applies to">
+              {#snippet children(tip)}<Button {...tip} size="icon-xs" variant="ghost" aria-label="Remove saved edit" onclick={() => removeTextEdit(e.id)}><X /></Button>{/snippet}
+            </Hint>
           </li>
         {/each}
       </ul>
@@ -333,13 +338,17 @@
     <div class="flex h-11 flex-none items-center gap-1 border-b px-2">
       <!-- Which version of the text to show, as one menu so the toolbar stays on one line. -->
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props })}
-            <Button {...props} size="sm" variant="ghost" class="min-w-0 shrink px-2" aria-label="Show: {current[2]}" title="What to change">
-              <span class="truncate">{current[1]}</span><ChevronDown class="opacity-60" />
-            </Button>
+        <Hint text={current[2]} side="bottom">
+          {#snippet children(tip)}
+            <DropdownMenu.Trigger {...tip}>
+              {#snippet child({ props })}
+                <Button {...props} size="sm" variant="ghost" class="min-w-0 shrink px-2" aria-label="Show: {current[2]}">
+                  <span class="truncate">{current[1]}</span><ChevronDown class="opacity-60" />
+                </Button>
+              {/snippet}
+            </DropdownMenu.Trigger>
           {/snippet}
-        </DropdownMenu.Trigger>
+        </Hint>
         <DropdownMenu.Content align="start" class="w-72">
           <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Show the description with</DropdownMenu.Label>
           <DropdownMenu.RadioGroup value={mode} onValueChange={(v) => ((mode = v as typeof mode), (edited = false))}>
@@ -361,21 +370,31 @@
       <div class="ml-auto flex shrink-0 gap-1">
         {#if edited}
           <!-- Undo and Save are icon-only, so the toolbar stays on one line while editing. -->
-          <Button size="icon-sm" variant="ghost" onclick={reset} aria-label={stale ? 'Reapply fixes' : 'Undo my edits'} title={stale ? 'Reapply fixes' : 'Undo my edits'}><RotateCcw /></Button>
+          <Hint text={stale ? 'Reapply fixes' : 'Undo my edits'} side="bottom">
+            {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" onclick={reset} aria-label={stale ? 'Reapply fixes' : 'Undo my edits'}><RotateCcw /></Button>{/snippet}
+          </Hint>
         {/if}
         {#if canSave}
-          <Button size="icon-sm" variant="outline" onclick={startSave} aria-label="Save edit" title="Save edit: here and in other videos with the same lines"><Save /></Button>
+          <Hint text="Save this edit, here and in other videos with the same lines" side="bottom">
+            {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="outline" onclick={startSave} aria-label="Save edit"><Save /></Button>{/snippet}
+          </Hint>
         {/if}
-        <Button size="sm" variant="outline" onclick={() => copy()} disabled={description === null} title="Copy"
-          ><Copy /><span class="hidden @xl:inline">Copy</span></Button
-        >
-        <Button size="sm" onclick={() => copy(true)} disabled={description === null} title="Copy the description and open this video in YouTube Studio">
-          <Copy /> Copy & open<span class="hidden @xl:inline">Studio</span> <ExternalLink />
-        </Button>
+        <Hint text="Copy the description" side="bottom">
+          {#snippet children(tip)}<Button {...tip} size="sm" variant="outline" onclick={() => copy()} disabled={description === null} aria-label="Copy"
+            ><Copy /><span class="hidden @xl:inline">Copy</span></Button
+          >{/snippet}
+        </Hint>
+        <Hint text="Copy the description and open this video in YouTube Studio" side="bottom">
+          {#snippet children(tip)}<Button {...tip} size="sm" onclick={() => copy(true)} disabled={description === null}>
+            <Copy /> Copy & open<span class="hidden @xl:inline">Studio</span> <ExternalLink />
+          </Button>{/snippet}
+        </Hint>
         {#if !hasStudioTab()}
-          <Button size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" title="Reuse one Studio tab (optional extension)" onclick={() => (ui.studioTab = true)}>
-            <AppWindow />
-          </Button>
+          <Hint text="Reuse one Studio tab (optional extension)" side="bottom">
+            {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" onclick={() => (ui.studioTab = true)}>
+              <AppWindow />
+            </Button>{/snippet}
+          </Hint>
         {/if}
       </div>
     </div>

@@ -77,10 +77,14 @@
 <div class="flex h-full min-h-0 flex-col">
   <header class="flex flex-none items-center gap-2 border-b px-4 py-2.5">
     {#if onback}
-      <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Back to the list" onclick={onback}><ArrowLeft /></Button>
+      <Hint text="Back to the list" side="bottom">
+        {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" class="-ml-2" aria-label="Back to the list" onclick={onback}><ArrowLeft /></Button>{/snippet}
+      </Hint>
     {/if}
     {#if onexpand}
-      <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Show the list" title="Show the list" onclick={onexpand}><PanelLeftOpen /></Button>
+      <Hint text="Show the list" kbd="[" side="bottom">
+        {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" class="-ml-2" aria-label="Show the list" onclick={onexpand}><PanelLeftOpen /></Button>{/snippet}
+      </Hint>
     {/if}
     <StatusBadge category={row.cls.category} />
     <span class="text-muted-foreground min-w-0 flex-1 truncate text-xs">
@@ -101,11 +105,15 @@
     {/if}
     <PlanFixButton {row} />
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger>
-        {#snippet child({ props })}
-          <Button {...props} size="icon-sm" variant="ghost" aria-label="More actions"><Ellipsis /></Button>
+      <Hint text="More actions" side="bottom">
+        {#snippet children(tip)}
+          <DropdownMenu.Trigger {...tip}>
+            {#snippet child({ props })}
+              <Button {...props} size="icon-sm" variant="ghost" aria-label="More actions"><Ellipsis /></Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
         {/snippet}
-      </DropdownMenu.Trigger>
+      </Hint>
       <DropdownMenu.Content align="end" class="w-80 max-w-[calc(100vw-2rem)]">
         <FixMenuItems {row} />
         <DropdownMenu.Separator />

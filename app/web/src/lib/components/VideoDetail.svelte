@@ -13,6 +13,7 @@
   import StatusBadge from './StatusBadge.svelte';
   import PlannedFix from './PlannedFix.svelte';
   import PlanFixButton from './PlanFixButton.svelte';
+  import Hint from './Hint.svelte';
   import { Button } from '$lib/components/ui/button';
   import { studioLink, studioUrl } from '$lib/studio';
   import { data } from '$lib/store.svelte';
@@ -54,10 +55,14 @@
 <div class="@container flex h-full min-h-0 flex-col">
   <header class="flex flex-none flex-wrap items-start gap-x-3 gap-y-1 border-b px-4 py-3">
     {#if onback}
-      <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Back to the list" onclick={onback}><ArrowLeft /></Button>
+      <Hint text="Back to the list" side="bottom">
+        {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" class="-ml-2" aria-label="Back to the list" onclick={onback}><ArrowLeft /></Button>{/snippet}
+      </Hint>
     {/if}
     {#if onexpand}
-      <Button size="icon-sm" variant="ghost" class="-ml-2" aria-label="Show the list" title="Show the list" onclick={onexpand}><PanelLeftOpen /></Button>
+      <Hint text="Show the list" kbd="[" side="bottom">
+        {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" class="-ml-2" aria-label="Show the list" onclick={onexpand}><PanelLeftOpen /></Button>{/snippet}
+      </Hint>
     {/if}
     <img
       src="https://i.ytimg.com/vi/{v.id}/mqdefault.jpg"
@@ -129,13 +134,17 @@
                   {#if r.cls.detail}<div class="text-muted-foreground">{r.cls.detail}</div>{/if}
                   <PlannedFix url={r.url} />
                 </div>
-                <button
-                  type="button"
-                  class="text-muted-foreground hover:text-foreground hover:bg-muted shrink-0 rounded p-1 transition-colors duration-150"
-                  aria-label="Show in description"
-                  title="Show in description"
-                  onclick={() => onlocate(r.url)}><LocateFixed class="size-3.5" /></button
-                >
+                <Hint text="Show in description">
+                  {#snippet children(tip)}
+                    <button
+                      {...tip}
+                      type="button"
+                      class="text-muted-foreground hover:text-foreground hover:bg-muted shrink-0 rounded p-1 transition-colors duration-150"
+                      aria-label="Show in description"
+                      onclick={() => onlocate(r.url)}><LocateFixed class="size-3.5" /></button
+                    >
+                  {/snippet}
+                </Hint>
                 <PlanFixButton row={r} />
               </div>
             </li>

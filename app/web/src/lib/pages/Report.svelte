@@ -17,6 +17,7 @@
   import PencilLine from '@lucide/svelte/icons/pencil-line';
   import X from '@lucide/svelte/icons/x';
   import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
+  import CircleCheck from '@lucide/svelte/icons/circle-check';
   import ListFilter from '@lucide/svelte/icons/list-filter';
   import ArrowUpDown from '@lucide/svelte/icons/arrow-up-down';
   import Tv from '@lucide/svelte/icons/tv';
@@ -228,6 +229,22 @@
     const kind = view === 'links' ? 'link' : 'video';
     pick(kind, next).then(() => rowEl(kind, next)?.focus());
   }
+  // Shortcuts anywhere on the page, unless typing: / searches, [ hides or shows the list, and
+  // J and K open the next and previous item. The tooltips on those buttons show the keys.
+  function pageKeys(e: KeyboardEvent) {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+    const el = e.target as HTMLElement;
+    if (el.closest?.('input, textarea, select, [contenteditable="true"], [role="menu"], [role="dialog"]')) return;
+    const key = e.key.toLowerCase();
+    if (key === '/') {
+      if (collapsed) layout.listCollapsed.value = false;
+      searching = true;
+      searchEl?.focus();
+    } else if (key === '[' && !stacked) layout.listCollapsed.value = !layout.listCollapsed.value;
+    else if (key === 'j' || key === 'k') step(key === 'j' ? around.next : around.prev)?.();
+    else return;
+    e.preventDefault();
+  }
   function setView(v: 'links' | 'videos') {
     view = v;
     limit = PAGE;
@@ -263,11 +280,15 @@
     {/if}
     <div class="flex shrink-0 gap-2">
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger disabled={!rows.length}>
-          {#snippet child({ props })}
-            <Button {...props} size="sm" variant="outline" aria-label="Export" title="Export"><Download /><span class="@max-4xl:hidden">Export</span> <ChevronDown class="opacity-60" /></Button>
+        <Hint text="Export the links in this view">
+          {#snippet children(tip)}
+            <DropdownMenu.Trigger {...tip} disabled={!rows.length}>
+              {#snippet child({ props })}
+                <Button {...props} size="sm" variant="outline" aria-label="Export"><Download /><span class="@max-4xl:hidden">Export</span> <ChevronDown class="opacity-60" /></Button>
+              {/snippet}
+            </DropdownMenu.Trigger>
           {/snippet}
-        </DropdownMenu.Trigger>
+        </Hint>
         <DropdownMenu.Content align="end" class="w-52">
           <DropdownMenu.Label class="text-muted-foreground text-xs font-normal tabular-nums">
             {rows.length.toLocaleString()} links in this view
@@ -279,11 +300,17 @@
       </DropdownMenu.Root>
 
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger disabled={scanning || !report.channels.length}>
-          {#snippet child({ props })}
-            <Button {...props} size="sm" aria-label="Rescan" title="Rescan"><RefreshCw /><span class="@max-4xl:hidden">Rescan</span> <ChevronDown class="opacity-60" /></Button>
+        <Hint text={scanning ? 'A scan is running' : 'Scan for new videos or recheck links'}>
+          {#snippet children(tip)}
+            <span {...tip} class="inline-flex">
+              <DropdownMenu.Trigger disabled={scanning || !report.channels.length}>
+                {#snippet child({ props })}
+                  <Button {...props} size="sm" aria-label="Rescan"><RefreshCw /><span class="@max-4xl:hidden">Rescan</span> <ChevronDown class="opacity-60" /></Button>
+                {/snippet}
+              </DropdownMenu.Trigger>
+            </span>
           {/snippet}
-        </DropdownMenu.Trigger>
+        </Hint>
         <!-- One line per option: what it covers and how long it takes. Quota only comes up when it's short. -->
         <DropdownMenu.Content align="end" class="w-64">
           <DropdownMenu.Item onSelect={() => startScan('full')} disabled={!left.full || fullTooBig}>
@@ -386,17 +413,23 @@
                 {/each}
               </div>
               <div class="flex-1"></div>
-              <Button size="icon-sm" variant="ghost" aria-label="Search" title="Search" onclick={() => (searching = true)}><Search /></Button>
+              <Hint text="Search" kbd="/">
+                {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" aria-label="Search" onclick={() => (searching = true)}><Search /></Button>{/snippet}
+              </Hint>
             {/if}
 
             <DropdownMenu.Root>
-              <DropdownMenu.Trigger>
-                {#snippet child({ props })}
-                  <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Filter by status: {filterLabel}" title="Filter by status">
-                    <ListFilter />{#if filter !== 'attention'}<span class="bg-foreground absolute top-1 right-1 size-1.5 rounded-full"></span>{/if}
-                  </Button>
+              <Hint text="Filter by status">
+                {#snippet children(tip)}
+                  <DropdownMenu.Trigger {...tip}>
+                    {#snippet child({ props })}
+                      <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Filter by status: {filterLabel}">
+                        <ListFilter />{#if filter !== 'attention'}<span class="bg-primary absolute top-1 right-1 size-1.5 rounded-full"></span>{/if}
+                      </Button>
+                    {/snippet}
+                  </DropdownMenu.Trigger>
                 {/snippet}
-              </DropdownMenu.Trigger>
+              </Hint>
               <DropdownMenu.Content align="end" class="w-60">
                 <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Status</DropdownMenu.Label>
                 <DropdownMenu.RadioGroup value={filter} onValueChange={(v) => v && setFilter(v)}>
@@ -413,13 +446,17 @@
 
             {#if report.channels.length > 1}
               <DropdownMenu.Root>
-                <DropdownMenu.Trigger>
-                  {#snippet child({ props })}
-                    <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Channel: {channel === 'all' ? 'All channels' : channelTitle[channel]}" title="Channel">
-                      <Tv />{#if channel !== 'all'}<span class="bg-foreground absolute top-1 right-1 size-1.5 rounded-full"></span>{/if}
-                    </Button>
+                <Hint text="Filter by channel">
+                  {#snippet children(tip)}
+                    <DropdownMenu.Trigger {...tip}>
+                      {#snippet child({ props })}
+                        <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Channel: {channel === 'all' ? 'All channels' : channelTitle[channel]}">
+                          <Tv />{#if channel !== 'all'}<span class="bg-primary absolute top-1 right-1 size-1.5 rounded-full"></span>{/if}
+                        </Button>
+                      {/snippet}
+                    </DropdownMenu.Trigger>
                   {/snippet}
-                </DropdownMenu.Trigger>
+                </Hint>
                 <DropdownMenu.Content align="end" class="w-60">
                   <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Channel</DropdownMenu.Label>
                   <DropdownMenu.RadioGroup value={channel} onValueChange={(v) => v && ((channel = v), (limit = PAGE))}>
@@ -431,7 +468,9 @@
             {/if}
 
             {#if !stacked}
-              <Button size="icon-sm" variant="ghost" aria-label="Collapse the list" title="Collapse the list (focus on one item)" onclick={() => (layout.listCollapsed.value = true)}><PanelLeftClose /></Button>
+              <Hint text="Hide the list" kbd="[">
+                {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" aria-label="Hide the list" onclick={() => (layout.listCollapsed.value = true)}><PanelLeftClose /></Button>{/snippet}
+              </Hint>
             {/if}
           </div>
 
@@ -440,6 +479,13 @@
             <span class="min-w-0 flex-1 truncate">
               {filterLabel}{#if channel !== 'all'}{' · '}{channelTitle[channel]}{/if} · <span class="tabular-nums">{(view === 'links' ? rows.length : groups.length).toLocaleString()}</span>
             </span>
+            {#if filter !== 'attention' || channel !== 'all'}
+              <Hint text="Back to links that need attention, in every channel">
+                {#snippet children(tip)}
+                  <Button {...tip} size="xs" variant="ghost" class="text-muted-foreground shrink-0 font-normal" onclick={() => ((channel = 'all'), setFilter('attention'))}>Reset</Button>
+                {/snippet}
+              </Hint>
+            {/if}
             {#if view === 'links'}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger>
@@ -543,13 +589,6 @@
                 </div>
               {/if}
             {/if}
-            <p class="text-muted-foreground flex items-start gap-2 px-4 py-4 text-xs">
-              <Info class="mt-px size-3.5 shrink-0" />
-              <span>
-                Link check results are shared across all workspaces, since they're public links on public videos. Your channels, members and
-                exception lists are private to this workspace.
-              </span>
-            </p>
           </div>
         </section>
       {/if}
@@ -579,8 +618,9 @@
               onnext={step(around.next)}
             />
           {:else if !stacked}
-            <div class="text-muted-foreground flex h-full items-center justify-center p-6 text-center text-sm">
-              {view === 'links' ? 'No link to show in this filter.' : 'No video to show in this filter.'}
+            <div class="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm">
+              <CircleCheck class="size-6 opacity-50" />
+              {view === 'links' ? 'No links in this filter.' : 'No videos in this filter.'}
             </div>
           {/if}
         </section>
@@ -589,4 +629,5 @@
   {/if}
 </div>
 
+<svelte:window onkeydown={pageKeys} />
 <FixLinkDialog />

@@ -8,8 +8,8 @@
 // Bulk writes pass one JSON array to json_each instead of one parameter per row, because a
 // D1 query allows at most 100 bound parameters (and a batch counts toward the 50 queries).
 //
-// Link results in `links` are shared by every workspace (a URL is checked once, whoever
-// asked), but every read here is scoped through workspace_channels to one workspace.
+// Link results in `links` belong to one workspace (keyed by workspace_id and URL), and every
+// read and write here is scoped to the scan's workspace.
 // The cron (sweepStalledScans) restarts scans whose messages were lost.
 import { checkUrl, extractUrls, hostOf, type LinkResult } from '../shared/core.ts';
 import { SKIP_DOMAINS } from '../shared/rules.ts';
@@ -117,7 +117,7 @@ export async function usageToday(env: Env, workspaceId: string) {
 }
 
 /**
- * URLs in this workspace's videos whose shared result is missing or older than `staleBefore`,
+ * URLs in this workspace's videos whose result is missing or older than `staleBefore`,
  * optionally limited to some links (`only`) or some channels (`channels`).
  */
 async function workspaceUrls(
@@ -129,7 +129,7 @@ async function workspaceUrls(
   const sql = `SELECT DISTINCT vl.url AS url FROM video_links vl
     JOIN videos v ON v.id = vl.video_id
     JOIN workspace_channels wc ON wc.channel_id = v.channel_id
-    LEFT JOIN links l ON l.url = vl.url
+    LEFT JOIN links l ON l.workspace_id = ?1 AND l.url = vl.url
     WHERE wc.workspace_id = ?1 AND (l.url IS NULL OR l.checked_at < ?2)
       AND (?3 IS NULL OR vl.url IN (SELECT value FROM json_each(?3)))
       AND (?4 IS NULL OR v.channel_id IN (SELECT value FROM json_each(?4)))`;
@@ -333,25 +333,25 @@ async function handleFetch(env: Env, job: Extract<Job, { t: 'fetch' }>) {
 type Checked = Omit<LinkResult, 'prevFinalUrl' | 'checkedAt'>;
 
 /**
- * Upserts check results into the shared `links` table and advances the scan's progress in
+ * Upserts check results into the workspace's rows of `links` and advances the scan's progress in
  * one batch; finishes the scan when every link is done. When a link's final URL changes,
  * the old one is kept in prev_final_url so the report can flag a changed destination.
  */
-async function saveResults(env: Env, scanId: number, results: Checked[]) {
+async function saveResults(env: Env, scan: ScanRow, results: Checked[]) {
   const stmts = [];
   if (results.length) {
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO links (url, outcome, status, final_url, chain, parked, note, first_seen, checked_at)
-         SELECT value->>'url', value->>'outcome', value->>'status', value->>'finalUrl', value->>'chain',
+        `INSERT INTO links (workspace_id, url, outcome, status, final_url, chain, parked, note, first_seen, checked_at)
+         SELECT ?3, value->>'url', value->>'outcome', value->>'status', value->>'finalUrl', value->>'chain',
                 COALESCE(value->>'parked', 0), value->>'note', ?1, ?1
          FROM json_each(?2) WHERE true
-         ON CONFLICT (url) DO UPDATE SET
+         ON CONFLICT (workspace_id, url) DO UPDATE SET
            prev_final_url = CASE WHEN excluded.outcome = 'final' AND links.outcome = 'final' AND links.final_url != excluded.final_url
                                  THEN links.final_url ELSE links.prev_final_url END,
            outcome = excluded.outcome, status = excluded.status, final_url = excluded.final_url,
            chain = excluded.chain, parked = excluded.parked, note = excluded.note, checked_at = excluded.checked_at`,
-      ).bind(now(), JSON.stringify(results)),
+      ).bind(now(), JSON.stringify(results), scan.workspace_id),
     );
   }
   stmts.push(
@@ -361,12 +361,12 @@ async function saveResults(env: Env, scanId: number, results: Checked[]) {
       results.length,
       results.length ? JSON.stringify(results.map((r) => ({ u: r.url, o: r.outcome, s: r.status }))) : null,
       now(),
-      scanId,
+      scan.id,
     ),
   );
   const out = await env.DB.batch<{ done: number; total: number }>(stmts);
   const progress = out[out.length - 1]?.results[0];
-  if (progress && progress.done >= progress.total) await finish(env, scanId);
+  if (progress && progress.done >= progress.total) await finish(env, scan.id);
 }
 
 /**
@@ -408,7 +408,7 @@ async function handleCheck(env: Env, job: Extract<Job, { t: 'check' }>) {
     }
   }
   if (deferred.length) await env.JOBS.send({ t: 'check', scanId: scan.id, items: deferred });
-  await saveResults(env, scan.id, results);
+  await saveResults(env, scan, results);
 }
 
 /**
@@ -442,7 +442,7 @@ export async function estimates(env: Env, workspaceId: string) {
               COALESCE(SUM(l.url IS NULL OR l.checked_at < ?3), 0) AS staleHour
        FROM (SELECT DISTINCT vl.url AS url FROM video_links vl JOIN videos v ON v.id = vl.video_id
              JOIN workspace_channels wc ON wc.channel_id = v.channel_id WHERE wc.workspace_id = ?1) w
-       LEFT JOIN links l ON l.url = w.url`,
+       LEFT JOIN links l ON l.workspace_id = ?1 AND l.url = w.url`,
     ).bind(workspaceId, ago(FRESH.full), ago(FRESH.all)),
     env.DB.prepare(
       `SELECT COALESCE(SUM(MAX(1, (c.video_count + 49) / 50)), 0) AS pages FROM channels c
@@ -504,10 +504,10 @@ export async function sweepStalledScans(env: Env) {
     }
     const remaining = (
       await env.DB.prepare(
-        `SELECT t.value AS url FROM json_each(?1) t LEFT JOIN links l ON l.url = t.value
+        `SELECT t.value AS url FROM json_each(?1) t LEFT JOIN links l ON l.workspace_id = ?3 AND l.url = t.value
          WHERE l.url IS NULL OR l.checked_at < ?2`,
       )
-        .bind(scan.urls ?? '[]', scan.checking_started_at ?? scan.created_at)
+        .bind(scan.urls ?? '[]', scan.checking_started_at ?? scan.created_at, scan.workspace_id)
         .all<{ url: string }>()
     ).results.map((r) => r.url);
     if (!remaining.length) {

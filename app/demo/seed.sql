@@ -72,7 +72,8 @@ INSERT INTO video_links (video_id, url) VALUES
   ('demoVideo08', 'https://sunrisetimer.example/');
 
 -- Stored check results, in the same shape the checker writes them.
-INSERT INTO links (url, outcome, status, final_url, chain, parked, note, first_seen, checked_at) VALUES
+INSERT INTO links (workspace_id, url, outcome, status, final_url, chain, parked, note, first_seen, checked_at)
+SELECT 'demo-ws', * FROM (VALUES
   ('https://quillnotes.example/download', 'final', 200, 'https://quill.example/download',
    '[{"u":"https://quillnotes.example/download","s":301},{"u":"https://quill.example/download","s":200}]', 0, NULL,
    strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours')),
@@ -105,7 +106,7 @@ INSERT INTO links (url, outcome, status, final_url, chain, parked, note, first_s
    strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours')),
   ('https://sunrisetimer.example/', 'final', 200, 'https://sunrisetimer.example/',
    '[{"u":"https://sunrisetimer.example/","s":200}]', 0, NULL,
-   strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours'));
+   strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 hours')));
 
 -- A finished scan, so the report says when it last ran.
 INSERT INTO scans (workspace_id, kind, status, total, done, created_by, created_at, updated_at, finished_at)
