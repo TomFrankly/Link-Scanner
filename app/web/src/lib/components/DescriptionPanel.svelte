@@ -390,7 +390,7 @@
           </Button>{/snippet}
         </Hint>
         {#if !hasStudioTab()}
-          <Hint text="Reuse one Studio tab (optional extension)" side="bottom">
+          <Hint text="Open Studio links in one tab beside the app" side="bottom">
             {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" onclick={() => (ui.studioTab = true)}>
               <AppWindow />
             </Button>{/snippet}

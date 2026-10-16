@@ -69,7 +69,7 @@
               <span class="bg-muted flex size-9 shrink-0 items-center justify-center rounded-md"><AppWindow class="size-4" /></span>
               <span class="min-w-0 flex-1">
                 <span class="block font-medium">Reuse one Studio tab</span>
-                <span class="text-muted-foreground block text-xs">An optional browser extension so Studio links all open in the same tab.</span>
+                <span class="text-muted-foreground block text-xs">Open Studio links in one pane beside the app: Edge Split View, or a small extension.</span>
               </span>
               <ChevronRight class="text-muted-foreground size-4 shrink-0" />
             </button>

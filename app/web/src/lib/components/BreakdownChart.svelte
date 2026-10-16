@@ -6,6 +6,7 @@
   // active status filter; clicking a segment or legend item calls onSelect with a FILTERS key.
   // It fits on one line: share OK, the bar, and a legend of counts (labels in their tooltips).
   import type { Row } from '$lib/types';
+  import Hint from './Hint.svelte';
 
   let { rows, active, onSelect }: { rows: Row[]; active: string; onSelect: (filter: string) => void } = $props();
 
@@ -78,16 +79,20 @@
   </div>
   <div class="flex shrink-0 gap-0.5">
     {#each parts as p (p.key)}
-      <button
-        class="hover:bg-muted flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs transition-colors duration-150 {active === p.key ? 'bg-muted' : ''}"
-        onclick={() => onSelect(p.key)}
-        aria-pressed={active === p.key}
-        aria-label="{p.label}: {p.count} links"
-        title="{p.label}: {p.count.toLocaleString()} links ({fmtPct(p.count)})"
-      >
-        <span class="size-2 shrink-0 rounded-[2px]" style="background: {p.color}"></span>
-        <span class="font-medium tabular-nums">{p.count.toLocaleString()}</span>
-      </button>
+      <Hint text="{p.label}: {p.count.toLocaleString()} links ({fmtPct(p.count)})" side="bottom">
+        {#snippet children(tip)}
+          <button
+            {...tip}
+            class="hover:bg-muted flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs transition-colors duration-150 {active === p.key ? 'bg-muted' : ''}"
+            onclick={() => onSelect(p.key)}
+            aria-pressed={active === p.key}
+            aria-label="{p.label}: {p.count} links"
+          >
+            <span class="size-2 shrink-0 rounded-[2px]" style="background: {p.color}"></span>
+            <span class="font-medium tabular-nums">{p.count.toLocaleString()}</span>
+          </button>
+        {/snippet}
+      </Hint>
     {/each}
   </div>
 </section>

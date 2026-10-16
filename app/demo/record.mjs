@@ -91,11 +91,8 @@ async function resetWorkspace() {
 function installHelpers() {
   const style = document.createElement('style');
   style.textContent = `
-    html { scrollbar-width: none; }
-    button[aria-label="Help"] { display: none !important; }
+    html, * { scrollbar-width: none; }
     body { transform-origin: 0 0; }
-    /* A sticky bar inside a transformed body drifts while zooming, so it scrolls normally here. */
-    header.sticky { position: relative !important; }
     #demo-cursor { position: absolute; left: 0; top: 0; z-index: 2147483647; pointer-events: none;
       transition-property: transform; transition-timing-function: cubic-bezier(.45,0,.2,1); }
     #demo-cursor svg { display: block; transition: transform 120ms ease-out; transform-origin: 4px 3px;
@@ -317,8 +314,10 @@ function stubScan(page) {
 // Each clip names the page it starts on, an optional `setup` (runs before filming, e.g. to
 // scroll into place or add stand-ins) and a `run` that is filmed.
 
-const tableToolbar = (page) => page.locator('[role="tablist"][aria-label="View"]');
-const rowFor = (page, text) => page.locator('tbody tr', { hasText: text }).first();
+// The report is an inbox: a list pane of links (or videos) and a content pane for the picked one.
+const linkRow = (page, url) => page.locator(`[data-link="${url}"]`);
+const videoRow = (page, id) => page.locator(`[data-video="${id}"]`);
+const linkPane = (page) => page.locator('section[aria-label="Link"]');
 
 const CLIPS = {
   /** Tour step "Add your channels": paste a handle, add it, and it's ready to scan. */
@@ -384,20 +383,22 @@ const CLIPS = {
     },
   },
 
-  /** Tour step "Read the report": filter by a status, and hover a badge for what it means. */
+  /** Tour step "Read the report": filter by a status, pick a link, and hover its status for what it means. */
   report: {
     route: 'report',
     async run(page, d) {
       const broken = page.locator('section[aria-labelledby="health-heading"]').getByRole('button', { name: /^Broken/ }).last();
       await d.wait(600);
-      await d.move(broken, 900, { zoom: 1.7 });
-      await d.wait(700);
+      await d.move(broken, 900, { zoom: 1.6, zoomOffset: { x: -120, y: 60 } });
+      await d.wait(900); // the legend's tooltip names the status
       await d.click(); // show only broken links
-      await d.wait(600);
+      await d.wait(500);
       await d.zoom(1, null, 700);
-      await d.scrollTo(tableToolbar(page), 700);
-      const badge = page.locator('tbody tr').first().getByRole('button', { name: 'Broken' });
-      await d.move(badge, 900, { zoom: 1.7, zoomOffset: { x: 140, y: -20 } });
+      await d.move(page.locator('[data-link]').nth(1), 800);
+      await d.click(); // the content pane shows the link, where it goes and its videos
+      await d.wait(700);
+      const badge = linkPane(page).locator('header').getByRole('button').first();
+      await d.move(badge, 900, { zoom: 1.7, zoomOffset: { x: 140, y: 30 } });
       await d.wait(1800); // the tooltip explains the status
       await d.zoom(1, null, 800);
       await d.wait(600);
@@ -407,77 +408,73 @@ const CLIPS = {
   /** Tour step "Mark what's expected": accept a rebrand, and both links making that move clear. */
   accept: {
     route: 'report',
-    async setup(page, d) {
-      await d.scrollTo(tableToolbar(page), 0);
-    },
     async run(page, d) {
-      const accept = rowFor(page, 'quillnotes.example/download').getByRole('button', { name: 'Accept' });
+      // The first link in the list, already open: quillnotes.example → quill.example.
+      const accept = linkPane(page).getByRole('button', { name: 'Accept' });
       await d.wait(700);
-      // Straight to the action; the camera is centered a little left so the link's
-      // "quillnotes.example → quill.example" note stays in view.
-      await d.move(accept, 1000, { zoom: 1.7, zoomOffset: { x: -150, y: 0 } });
-      await d.wait(1400); // the tooltip explains what Accept does
+      // Centered a little lower, so the link and its "quillnotes.example → quill.example" note stay in view.
+      await d.move(accept, 1000, { zoom: 1.6, zoomOffset: { x: -120, y: 60 } });
+      await d.wait(1500); // the tooltip explains what Accept does
       await d.click();
-      await d.wait(1200); // both quillnotes rows leave the list
+      await d.wait(800);
       await d.zoom(1, null, 900);
-      await d.wait(1600); // "Needs attention" now shows 4
+      await d.wait(1800); // both quillnotes links left the list; the headline counts fewer
     },
   },
 
   /** Tour step "Plan your fixes": give a broken link its replacement. */
   fix: {
     route: 'report',
-    async setup(page, d) {
-      await d.scrollTo(tableToolbar(page), 0);
-    },
     async run(page, d) {
-      const row = rowFor(page, 'gearlist.example/northwind-desk');
       await d.wait(600);
-      await d.move(row.getByRole('button', { name: 'More actions' }), 1000, { zoom: 1.6, zoomOffset: { x: -160, y: 60 } });
+      await d.move(linkRow(page, 'https://gearlist.example/northwind-desk'), 900);
+      await d.click();
+      await d.wait(600);
+      await d.move(linkPane(page).getByRole('button', { name: /Plan fix/ }), 900, { zoom: 1.5, zoomOffset: { x: -160, y: 90 } });
       await d.click();
       await d.wait(500);
       await d.move(page.getByRole('menuitem', { name: 'Replace with a different link…' }), 600);
       await d.wait(300);
-      await d.zoom(1, null, 500);
       await d.click();
-      await d.wait(600);
+      await d.zoom(1, null, 600);
       await d.type('https://gearlist.example/desk-2026', 40);
       await d.wait(500);
-      await page.keyboard.press('Enter'); // saves (the dialog's Save button sits below a 600px-tall frame)
+      await page.keyboard.press('Enter');
       await d.wait(700);
-      await d.move(row.getByText('desk-2026'), 900, { zoom: 1.7, zoomOffset: { x: 60, y: 0 } });
-      await d.wait(1500); // the planned replacement now shows under the link
+      await d.move(linkPane(page).getByText('desk-2026').first(), 900, { zoom: 1.6, zoomOffset: { x: 60, y: 0 } });
+      await d.wait(1600); // the planned replacement now shows under the link
       await d.zoom(1, null, 800);
       await d.wait(500);
     },
   },
 
-  /** Tour step "Fix the descriptions": open a video's description with its fixes highlighted, and copy it. */
+  /** Tour step "Fix the descriptions": open a video's description with its fixes highlighted, copy it, and focus. */
   descriptions: {
     route: 'report',
-    async setup(page, d) {
+    async setup(page) {
       await page.route('**/api/w/demo-ws/videos/*/description', (route) => {
         const id = decodeURIComponent(route.request().url().split('/videos/')[1].split('/')[0]);
         route.fulfill({ contentType: 'application/json', body: JSON.stringify({ description: DESCRIPTIONS[id] ?? DESCRIPTIONS.demoVideo02 }) });
       });
-      await d.scrollTo(tableToolbar(page), 0);
     },
     async run(page, d) {
-      const row = rowFor(page, 'gearlist.example/northwind-desk');
       await d.wait(500);
-      await d.move(row.getByRole('button', { name: /4 videos/ }), 900, { zoom: 1.5, zoomOffset: { x: -100, y: 80 } });
+      await d.move(page.getByRole('tab', { name: 'Videos' }), 800);
+      await d.click(); // the list switches to videos
+      await d.wait(700);
+      await d.move(videoRow(page, 'demoVideo02'), 800);
+      await d.click(); // its description opens with the planned fixes applied and highlighted
+      await d.wait(1200);
+      const editor = page.locator('.cm-content');
+      await d.move(editor, 900, { zoom: 1.4, offset: { x: -60, y: -40 } });
+      await d.wait(1400);
+      await d.move(page.getByRole('button', { name: 'Copy', exact: true }), 800, { zoom: 1.4 });
       await d.click();
-      await d.wait(600);
-      const video = page.locator('li', { hasText: 'Desk Setup Tour' });
-      await d.move(video.getByRole('button', { name: 'Fix description' }), 800);
-      await d.zoom(1, null, 500);
-      await d.click();
-      await d.wait(1600); // the drawer opens with the description and the broken links highlighted
-      const copy = page.locator('[aria-label="Fix description"]').getByRole('button', { name: /Copy/ });
-      await d.move(copy, 900, { zoom: 1.5, zoomOffset: { x: -200, y: 120 } });
-      await d.wait(400);
-      await d.click();
-      await d.wait(1800); // "Description copied" — ends here, with the drawer still open
+      await d.wait(1000); // "Description copied"
+      await d.zoom(1, null, 700);
+      await d.move(page.getByRole('button', { name: 'Hide the list' }), 800);
+      await d.click(); // focus mode: just the video, with arrows to the next one
+      await d.wait(1600);
     },
   },
 
@@ -593,8 +590,12 @@ async function main() {
   const todo = names.length ? names : Object.keys(CLIPS);
   for (const n of todo) if (!CLIPS[n]) throw new Error(`Unknown clip "${n}". Clips: ${Object.keys(CLIPS).join(', ')}`);
 
-  const server = reuse ? null : await startServer();
+  // The browser first: if it can't start, there's no server left running.
   const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
+  const server = reuse ? null : await startServer().catch(async (e) => {
+    await browser.close();
+    throw e;
+  });
   try {
     for (const name of todo) {
       console.log(`Recording ${name} (${THEME})…`);
