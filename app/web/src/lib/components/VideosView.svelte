@@ -8,7 +8,7 @@
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import LocateFixed from '@lucide/svelte/icons/locate-fixed';
   import DescriptionPanel from '$lib/components/DescriptionPanel.svelte';
-  import { studioUrl } from '$lib/studio';
+  import { studioLink, studioUrl } from '$lib/studio';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import { Button } from '$lib/components/ui/button';
@@ -173,9 +173,15 @@
         </button>
         <div class="hidden shrink-0 items-center gap-0.5 md:flex">
           <Button size="xs" variant="ghost" href="https://www.youtube.com/watch?v={v.id}" target="_blank" rel="noreferrer">Watch</Button>
-          <Button size="xs" variant="ghost" href={studioUrl(v.id)} target="_blank" rel="noreferrer">
+          <a
+            class="hover:bg-muted hover:text-foreground inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors duration-150 [&_svg]:size-3"
+            href={studioUrl(v.id)}
+            target="_blank"
+            rel="noreferrer"
+            use:studioLink
+          >
             Edit in Studio <ExternalLink />
-          </Button>
+          </a>
         </div>
       </div>
 
@@ -199,11 +205,11 @@
             <span><span class="text-foreground tabular-nums">{g.problems.length}</span> to fix</span>
             <span class="flex gap-3 md:hidden">
               <a class="hover:text-foreground underline-offset-2 hover:underline" href="https://www.youtube.com/watch?v={v.id}" target="_blank" rel="noreferrer">Watch</a>
-              <a class="hover:text-foreground underline-offset-2 hover:underline" href={studioUrl(v.id)} target="_blank" rel="noreferrer">Edit in Studio</a>
+              <a class="hover:text-foreground underline-offset-2 hover:underline" href={studioUrl(v.id)} target="_blank" rel="noreferrer" use:studioLink>Edit in Studio</a>
             </span>
           </div>
           {#if tab === 'description'}
-            <DescriptionPanel video={v} focus={focus.get(v.id) ?? null} onnext={nextToFix(v.id) ? () => goNext(v.id) : null} />
+            <DescriptionPanel video={v} allLinks={g.links} focus={focus.get(v.id) ?? null} onnext={nextToFix(v.id) ? () => goNext(v.id) : null} />
           {:else}
           <ul class="divide-y rounded-md border bg-background">
             {#each g.links as r (r.url)}

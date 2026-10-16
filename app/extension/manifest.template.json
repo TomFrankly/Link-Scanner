@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "__NAME__: Studio tab",
+  "version": "1.0.0",
+  "description": "Opens YouTube Studio links from __NAME__ in one reused tab.",
+  "minimum_chrome_version": "102",
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["__ORIGIN__/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "permissions": ["storage"]
+}

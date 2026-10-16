@@ -21,7 +21,7 @@
   import PlannedFix from '$lib/components/PlannedFix.svelte';
   import FixMenuItems from '$lib/components/FixMenuItems.svelte';
   import FixLinkDialog from '$lib/components/FixLinkDialog.svelte';
-  import { studioUrl } from '$lib/studio';
+  import { studioLink, studioUrl } from '$lib/studio';
   import { FIXABLE } from '$shared/fixes';
   import { toast } from 'svelte-sonner';
   import BreakdownChart from '$lib/components/BreakdownChart.svelte';
@@ -451,6 +451,7 @@
                           <a
                             class="hover:bg-background inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-150"
                             href={studioUrl(v.id)}
+                            use:studioLink
                             target="_blank"
                             rel="noreferrer"
                           >

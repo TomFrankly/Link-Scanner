@@ -23,6 +23,7 @@ Scans the public video descriptions of YouTube channels and flags links that are
 | `shared/` | Link extraction, checking and classification (`core.ts`), default rules (`rules.ts`), description fixes (`fixes.ts`) and saved edits (`textEdits.ts`), used by both Worker and UI |
 | `web/` | Svelte 5 + Tailwind 4 + shadcn-svelte UI, built into `dist/` and served as Worker assets |
 | `migrations/` | D1 schema |
+| `extension/` | Optional Studio tab browser extension: Studio links reuse one tab. The app builds a copy for its own address (Help → Reuse one Studio tab) |
 
 ## Local development
 

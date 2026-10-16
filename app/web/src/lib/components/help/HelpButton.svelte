@@ -7,6 +7,9 @@
   import Workflow from '@lucide/svelte/icons/workflow';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+  import AppWindow from '@lucide/svelte/icons/app-window';
+  import { ui } from '$lib/store.svelte';
+  import StudioTabDialog from './StudioTabDialog.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
   import { brand } from '$lib/brand';
@@ -71,6 +74,18 @@
                 <ChevronRight class="text-muted-foreground size-4 shrink-0" />
               </button>
             {/each}
+            <button
+              type="button"
+              class="hover:bg-muted/60 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150"
+              onclick={() => ((open = false), (ui.studioTab = true))}
+            >
+              <span class="bg-muted flex size-9 shrink-0 items-center justify-center rounded-md"><AppWindow class="size-4" /></span>
+              <span class="min-w-0 flex-1">
+                <span class="block font-medium">Reuse one Studio tab</span>
+                <span class="text-muted-foreground block text-xs">An optional browser extension so Studio links all open in the same tab.</span>
+              </span>
+              <ChevronRight class="text-muted-foreground size-4 shrink-0" />
+            </button>
             <a
               href={brand.repo}
               target="_blank"
@@ -94,3 +109,5 @@
     </div>
   </Dialog.Content>
 </Dialog.Root>
+
+<StudioTabDialog />

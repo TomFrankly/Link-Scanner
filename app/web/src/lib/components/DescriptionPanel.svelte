@@ -5,8 +5,9 @@
 </script>
 
 <script lang="ts">
-  // The Description tab of a video in the report's Videos view: the video's description with
-  // its fixes applied, ready to copy into YouTube Studio. The video's links come from
+  // The Description tab of a video in the report's Videos view: the video's links down the
+  // side (each with Plan fix and a locate button), and its description with fixes applied,
+  // ready to copy into YouTube Studio. The video's links come from
   // `data.rows`, their planned fixes from `data.fixes`, and the description itself is fetched
   // fresh from the API when the tab first opens.
   // The workspace's saved text edits (shared/textEdits.ts) run first, then the link fixes
@@ -20,25 +21,33 @@
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
   import Save from '@lucide/svelte/icons/save';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
-  import type { VideoRef } from '$lib/types';
+  import LocateFixed from '@lucide/svelte/icons/locate-fixed';
+  import StatusBadge from './StatusBadge.svelte';
+  import PlannedFix from './PlannedFix.svelte';
+  import PlanFixButton from './PlanFixButton.svelte';
+  import type { Row, VideoRef } from '$lib/types';
   import SaveEditsDialog from './SaveEditsDialog.svelte';
   import DescriptionEditor, { type LinkClick } from './DescriptionEditor.svelte';
   import LinkPopover from './LinkPopover.svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
+  import AppWindow from '@lucide/svelte/icons/app-window';
   import { Button } from '$lib/components/ui/button';
   import { Skeleton } from '$lib/components/ui/skeleton';
   import { api } from '$lib/api';
-  import { app, data, removeTextEdit, setFix } from '$lib/store.svelte';
-  import { studioUrl } from '$lib/studio';
+  import { app, data, removeTextEdit, setFix, ui } from '$lib/store.svelte';
+  import { hasStudioTab, openStudio } from '$lib/studio';
   import { applyFixes, FIXABLE, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
   import { applyTextEdits, editsFromHandEdit, splitLinkSwaps, type FoundEdit, type LinkSwap } from '$shared/textEdits';
 
   let {
     video,
+    allLinks,
     focus = null,
     onnext = null,
   }: {
     video: VideoRef;
+    /** Every link in the video, listed beside the editor (problems first). */
+    allLinks: Row[];
     /** A link to scroll to and flash once the text is ready; `n` changes on each request. */
     focus?: { url: string; n: number } | null;
     /** Moves to the next video to fix; null hides the button. */
@@ -129,7 +138,7 @@
   async function copy(open = false) {
     try {
       await navigator.clipboard.writeText(text);
-      if (open) window.open(studioUrl(video.id), '_blank');
+      if (open) openStudio(video.id);
       toast.success(open ? 'Copied. Paste it into the description in Studio.' : 'Description copied. Paste it into YouTube Studio.');
     } catch {
       toast.error('Could not copy. Select the text and copy it manually.');
@@ -262,72 +271,103 @@
   ] as [typeof mode, string, string][]);
 </script>
 
-<div class="space-y-2">
-  <div class="flex flex-wrap items-center gap-2">
-    <div class="bg-muted inline-flex flex-wrap rounded-md p-0.5" role="tablist" aria-label="What to change">
-      {#each MODES as [k, label, short] (k)}
-        <button
-          role="tab"
-          aria-selected={mode === k}
-          class="rounded-[5px] px-2 py-1 text-xs font-medium transition-colors duration-150 {mode === k
-            ? 'bg-background text-foreground shadow-xs'
-            : 'text-muted-foreground hover:text-foreground'}"
-          onclick={() => ((mode = k), (edited = false))}><span class="sm:hidden">{short}</span><span class="hidden sm:inline">{label}</span></button
-        >
-      {/each}
-    </div>
-    <span class="text-muted-foreground text-xs tabular-nums">
-      {#if generated && mode !== 'original'}{generated.changed} change{generated.changed === 1 ? '' : 's'}{/if}
-      {#if edited} · edited by hand{/if}
-    </span>
-    <div class="ml-auto flex flex-wrap gap-1">
-      {#if edited}
-        <Button size="sm" variant="ghost" onclick={reset}><RotateCcw /> {stale ? 'Reapply fixes' : 'Undo my edits'}</Button>
-      {/if}
-      {#if canSave}
-        <Button size="sm" variant="outline" onclick={startSave} title="Save your edit, here and in other videos with the same lines"><Save /> Save edit</Button>
-      {/if}
-      <Button size="sm" variant="outline" onclick={() => copy()} disabled={description === null}><Copy /> Copy</Button>
-      <Button size="sm" onclick={() => copy(true)} disabled={description === null} title="Copy the description and open this video in YouTube Studio">
-        <Copy /> Copy & open Studio <ExternalLink />
-      </Button>
-    </div>
-  </div>
-
-  {#if loadError}
-    <div class="text-sm text-[#b42d2d] dark:text-[#f07070]">{loadError}</div>
-  {:else if description === null}
-    <div class="bg-background space-y-2 rounded-md border p-3">
-      <Skeleton class="h-3 w-3/4" /><Skeleton class="h-3 w-full" /><Skeleton class="h-3 w-5/6" /><Skeleton class="h-3 w-2/3" />
-    </div>
-  {:else}
-    <!-- Links show as chips: click one to change it. The editor grows with the text. -->
-    <div class="bg-background rounded-md border">
-      <DescriptionEditor bind:this={editor} bind:ready={editorReady} bind:value={text} {needles} {tint} oninput={onInput} onlink={(l) => (popLink = l)} />
-    </div>
-  {/if}
-
-  {#if savedHere.length}
-    <div class="text-muted-foreground pt-1 text-xs">Saved edits on this video</div>
-    <ul class="bg-background divide-y rounded-md border">
-      {#each savedHere as e (e.id)}
-        <li class="flex items-start gap-2 px-3 py-2">
-          <PencilLine class="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
-          <div class="min-w-0 flex-1">
-            <div class="truncate font-mono text-xs" title={e.replace || e.find}>{preview(e.find, e.replace)}</div>
-            <div class="text-muted-foreground text-xs">{e.videos ? `${e.videos.length} video${e.videos.length === 1 ? '' : 's'}` : 'Every video with these lines'}</div>
+<!-- The video's links beside the editor (stacked above it on phones), then the editor. -->
+<div class="grid items-start gap-3 md:grid-cols-[17rem_minmax(0,1fr)]">
+  <aside class="bg-background max-h-56 overflow-y-auto rounded-md border md:sticky md:top-16 md:max-h-[calc(100dvh-5rem)]" aria-label="Links in this video">
+    <ul class="divide-y">
+      {#each allLinks as r (r.url)}
+        <li class="px-3 py-2">
+          <div class="flex items-center justify-between gap-2">
+            <StatusBadge category={r.cls.category} />
+            <PlanFixButton row={r} />
           </div>
-          <Button size="icon-xs" variant="ghost" aria-label="Remove saved edit" title="Remove this saved edit from every video it applies to" onclick={() => removeTextEdit(e.id)}><X /></Button>
+          <div class="mt-1 flex items-start gap-1">
+            <a href={r.url} target="_blank" rel="noreferrer" class="min-w-0 flex-1 font-mono text-xs break-all hover:underline" title="Open in a new tab">{r.url}</a>
+            <button
+              type="button"
+              class="text-muted-foreground hover:text-foreground hover:bg-muted -my-0.5 shrink-0 rounded p-0.5 transition-colors duration-150"
+              aria-label="Show in description"
+              title="Show in description"
+              onclick={() => locate(r.url)}><LocateFixed class="size-3.5" /></button
+            >
+          </div>
+          <PlannedFix url={r.url} />
         </li>
       {/each}
     </ul>
-  {/if}
+    {#if savedHere.length}
+      <div class="text-muted-foreground border-t px-3 pt-2.5 pb-1 text-xs">Saved edits on this video</div>
+      <ul class="divide-y">
+        {#each savedHere as e (e.id)}
+          <li class="flex items-start gap-2 px-3 py-2">
+            <PencilLine class="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="truncate font-mono text-xs" title={e.replace || e.find}>{preview(e.find, e.replace)}</div>
+              <div class="text-muted-foreground text-xs">{e.videos ? `${e.videos.length} video${e.videos.length === 1 ? '' : 's'}` : 'Every video with these lines'}</div>
+            </div>
+            <Button size="icon-xs" variant="ghost" aria-label="Remove saved edit" title="Remove this saved edit from every video it applies to" onclick={() => removeTextEdit(e.id)}><X /></Button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </aside>
 
-  {#if onnext}
-    <div class="flex justify-end pt-1">
-      <Button size="sm" variant="ghost" onclick={onnext}>Next video to fix <ArrowRight /></Button>
+  <div class="min-w-0 space-y-2">
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="bg-muted inline-flex flex-wrap rounded-md p-0.5" role="tablist" aria-label="What to change">
+        {#each MODES as [k, label, short] (k)}
+          <button
+            role="tab"
+            aria-selected={mode === k}
+            class="rounded-[5px] px-2 py-1 text-xs font-medium transition-colors duration-150 {mode === k
+              ? 'bg-background text-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground'}"
+            onclick={() => ((mode = k), (edited = false))}><span class="sm:hidden">{short}</span><span class="hidden sm:inline">{label}</span></button
+          >
+        {/each}
+      </div>
+      <span class="text-muted-foreground text-xs tabular-nums">
+        {#if generated && mode !== 'original'}{generated.changed} change{generated.changed === 1 ? '' : 's'}{/if}
+        {#if edited} · edited by hand{/if}
+      </span>
+      <div class="ml-auto flex flex-wrap gap-1">
+        {#if edited}
+          <Button size="sm" variant="ghost" onclick={reset}><RotateCcw /> {stale ? 'Reapply fixes' : 'Undo my edits'}</Button>
+        {/if}
+        {#if canSave}
+          <Button size="sm" variant="outline" onclick={startSave} title="Save your edit, here and in other videos with the same lines"><Save /> Save edit</Button>
+        {/if}
+        <Button size="sm" variant="outline" onclick={() => copy()} disabled={description === null}><Copy /> Copy</Button>
+        <Button size="sm" onclick={() => copy(true)} disabled={description === null} title="Copy the description and open this video in YouTube Studio">
+          <Copy /> Copy & open Studio <ExternalLink />
+        </Button>
+        {#if !hasStudioTab()}
+          <Button size="icon-sm" variant="ghost" aria-label="Reuse one Studio tab" title="Reuse one Studio tab (optional extension)" onclick={() => (ui.studioTab = true)}>
+            <AppWindow />
+          </Button>
+        {/if}
+      </div>
     </div>
-  {/if}
+
+    {#if loadError}
+      <div class="text-sm text-[#b42d2d] dark:text-[#f07070]">{loadError}</div>
+    {:else if description === null}
+      <div class="bg-background space-y-2 rounded-md border p-3">
+        <Skeleton class="h-3 w-3/4" /><Skeleton class="h-3 w-full" /><Skeleton class="h-3 w-5/6" /><Skeleton class="h-3 w-2/3" />
+      </div>
+    {:else}
+      <!-- Links show as chips: click one to change it. The editor grows with the text. -->
+      <div class="bg-background rounded-md border">
+        <DescriptionEditor bind:this={editor} bind:ready={editorReady} bind:value={text} {needles} {tint} oninput={onInput} onlink={(l) => (popLink = l)} />
+      </div>
+    {/if}
+
+    {#if onnext}
+      <div class="flex justify-end pt-1">
+        <Button size="sm" variant="ghost" onclick={onnext}>Next video to fix <ArrowRight /></Button>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <SaveEditsDialog changes={found} videoId={video.id} channelId={video.channelId} onclose={() => (found = null)} onsaved={saved} />

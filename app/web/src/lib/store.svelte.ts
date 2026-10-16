@@ -35,7 +35,8 @@ export const app = $state({
 });
 
 /**
- * Which link's fix dialog is open, and on which scope ('' = every channel). `openVideo` asks
+ * Which link's fix dialog is open, and on which scope ('' = every channel). `studioTab` opens
+ * the Studio tab extension dialog. `openVideo` asks
  * the report's Videos view to expand a video on a tab (and, with `url`, scroll its description
  * to that link); the Videos view clears it once handled.
  */
@@ -43,6 +44,8 @@ export const ui = $state({
   fixLinkUrl: null as string | null,
   fixLinkChannel: '',
   openVideo: null as { id: string; tab: 'links' | 'description'; url?: string } | null,
+  /** Whether the Studio tab extension dialog (help/StudioTabDialog.svelte) is open. */
+  studioTab: false,
 });
 
 window.addEventListener('hashchange', () => (app.route = routeFromHash()));
