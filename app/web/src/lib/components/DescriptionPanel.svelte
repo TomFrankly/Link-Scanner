@@ -31,6 +31,8 @@
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import AppWindow from '@lucide/svelte/icons/app-window';
   import { Button } from '$lib/components/ui/button';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import { Skeleton } from '$lib/components/ui/skeleton';
   import { api } from '$lib/api';
   import Resizer from './Resizer.svelte';
@@ -268,12 +270,13 @@
   const linksWidth = $derived(Math.min(Math.max(layout.linksWidth.value, LINKS_MIN), linksMax));
 
   const MODES = $derived([
-    // [mode, short label, full label (its tooltip)]
-    ['apply', 'Planned', 'Apply planned fixes'],
-    ['remove', 'Remove all', 'Remove all problem links'],
-    ...(hasRedirects ? [['redirects', 'Redirects', 'Update all redirects']] : []),
-    ['original', 'Original', 'Original'],
-  ] as [typeof mode, string, string][]);
+    // [mode, short label (the menu button), full label, what it does]
+    ['apply', 'Planned fixes', 'Apply planned fixes', 'Your plans; links without one get a FIX THIS marker'],
+    ['remove', 'Remove all', 'Remove all problem links', 'Every broken or redirected link taken out'],
+    ...(hasRedirects ? [['redirects', 'Update redirects', 'Update all redirects', 'Each redirect swapped for where it lands now']] : []),
+    ['original', 'Original', 'Original', 'The description as it is on YouTube'],
+  ] as [typeof mode, string, string, string][]);
+  const current = $derived(MODES.find(([k]) => k === mode) ?? MODES[0]!);
 </script>
 
 <!-- The video's links beside the editor when there's room for both, above it when not. Each
@@ -327,22 +330,30 @@
 
   <!-- A container, so the buttons' labels follow this column's width, not the window's. -->
   <div class="@container flex min-h-0 min-w-0 flex-1 flex-col">
-    <div class="flex flex-none flex-wrap items-center gap-2 border-b px-3 py-2">
-      <!-- Same look as the Links | Description switch. Short labels (the full ones are tooltips)
-           keep the toolbar on one line. -->
-      <div class="border-input bg-background inline-flex h-7 shrink-0 items-center rounded-md border p-0.5" role="tablist" aria-label="What to change">
-        {#each MODES as [k, label, full] (k)}
-          <button
-            role="tab"
-            aria-selected={mode === k}
-            title={full}
-            class="flex h-full items-center rounded-[4px] px-2 text-xs font-medium whitespace-nowrap transition-colors duration-150 {mode === k
-              ? 'bg-muted text-foreground'
-              : 'text-muted-foreground hover:text-foreground'}"
-            onclick={() => ((mode = k), (edited = false))}>{label}</button
-          >
-        {/each}
-      </div>
+    <div class="flex h-11 flex-none items-center gap-1 border-b px-2">
+      <!-- Which version of the text to show, as one menu so the toolbar stays on one line. -->
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <Button {...props} size="sm" variant="ghost" class="min-w-0 shrink px-2" aria-label="Show: {current[2]}" title="What to change">
+              <span class="truncate">{current[1]}</span><ChevronDown class="opacity-60" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="start" class="w-72">
+          <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Show the description with</DropdownMenu.Label>
+          <DropdownMenu.RadioGroup value={mode} onValueChange={(v) => ((mode = v as typeof mode), (edited = false))}>
+            {#each MODES as [k, , full, hint] (k)}
+              <DropdownMenu.RadioItem value={k}>
+                <span>
+                  <span class="block">{full}</span>
+                  <span class="text-muted-foreground block text-xs">{hint}</span>
+                </span>
+              </DropdownMenu.RadioItem>
+            {/each}
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
       <span class="text-muted-foreground min-w-0 flex-[1_1_0] truncate text-xs tabular-nums">
         {#if generated && mode !== 'original'}{generated.changed} change{generated.changed === 1 ? '' : 's'}{/if}
         {#if edited} · edited by hand{/if}

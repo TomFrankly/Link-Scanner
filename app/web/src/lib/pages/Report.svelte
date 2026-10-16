@@ -14,7 +14,14 @@
   import Search from '@lucide/svelte/icons/search';
   import Download from '@lucide/svelte/icons/download';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
+  import X from '@lucide/svelte/icons/x';
+  import Link2 from '@lucide/svelte/icons/link-2';
+  import Clapperboard from '@lucide/svelte/icons/clapperboard';
+  import ListFilter from '@lucide/svelte/icons/list-filter';
+  import ArrowUpDown from '@lucide/svelte/icons/arrow-up-down';
+  import Tv from '@lucide/svelte/icons/tv';
   import FixLinkDialog from '$lib/components/FixLinkDialog.svelte';
+  import Hint from '$lib/components/Hint.svelte';
   import LinkDetail from '$lib/components/LinkDetail.svelte';
   import VideoDetail from '$lib/components/VideoDetail.svelte';
   import Resizer from '$lib/components/Resizer.svelte';
@@ -26,7 +33,6 @@
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import * as Select from '$lib/components/ui/select';
   import { Input } from '$lib/components/ui/input';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import { FILTERS, isFlagged } from '$lib/categories';
@@ -46,6 +52,12 @@
   let channel = $state('all');
   let limit = $state(PAGE);
   let view = $state<'links' | 'videos'>('links');
+  // Search shows as an icon until clicked; the field focuses when it opens.
+  let searching = $state(false);
+  let searchEl = $state<HTMLInputElement | null>(null);
+  $effect(() => {
+    if (searching) searchEl?.focus();
+  });
 
   // Rows narrowed by the channel picker. Counts, the chart and the heading all use this, so
   // they agree with each other; the status filter and search only narrow the table.
@@ -91,6 +103,17 @@
   const videosInScope = $derived(channel === 'all' ? report.videos.length : report.videos.filter((v) => v.c === channel).length);
   const plannedCount = $derived(inChannel.filter((r) => FIXABLE.includes(r.cls.category) && data.fixes.has(r.url)).length);
   const scopeChannels = $derived(channel === 'all' ? report.channels : report.channels.filter((c) => c.id === channel));
+  // The scan details behind the heading's info icon.
+  const scanSummary = $derived(
+    [
+      scopeChannels.map((c) => c.title).join(', '),
+      `${inChannel.length.toLocaleString()} unique links checked`,
+      plannedCount ? `${plannedCount} with a planned fix` : '',
+      lastScan ? `Last scan ${lastScan}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  );
   const est = $derived(runEstimates(report.estimates, flagged.length));
   // A full scan is offered only if today's shared YouTube quota can cover it.
   const fullTooBig = $derived(est.full.units > report.estimates.quotaLeft);
@@ -204,7 +227,7 @@
        half-width window) the buttons lose their labels and the health bar gets its own row. -->
   <header class="@container flex flex-none flex-wrap items-center gap-x-5 gap-y-2 border-b px-4 py-2.5">
     <div class="min-w-0 flex-[1_1_16rem]">
-      <h1 class="line-clamp-2 text-base leading-snug font-semibold text-balance">
+      <h1 class="text-base leading-snug font-semibold text-balance">
         {#if !report.videos.length}
           Link report
         {:else if attentionCount}
@@ -213,10 +236,15 @@
         {:else}
           Every link looks good
         {/if}
+        <!-- The scan details, on hover or focus, instead of a second line. -->
+        <Hint text={scanSummary}>
+          {#snippet children(props)}
+            <button {...props} type="button" class="text-muted-foreground hover:text-foreground -my-1 inline-flex size-6 items-center justify-center rounded-md align-middle transition-colors duration-150" aria-label="Scan details">
+              <Info class="size-3.5" />
+            </button>
+          {/snippet}
+        </Hint>
       </h1>
-      <p class="text-muted-foreground truncate text-xs tabular-nums" title={scopeChannels.map((c) => c.title).join(' · ')}>
-        {inChannel.length.toLocaleString()} unique links checked{#if plannedCount}{' · '}{plannedCount} with a planned fix{/if}{#if lastScan}{' · '}last scan {lastScan}{/if}
-      </p>
     </div>
     {#if report.videos.length}
       <div class="order-last min-w-0 basis-full @4xl:order-none @4xl:max-w-md @4xl:flex-[1_1_16rem] @4xl:basis-auto"><BreakdownChart rows={inChannel} active={filter} onSelect={setFilter} /></div>
@@ -306,62 +334,111 @@
           style={stacked ? undefined : `width: ${listWidth}px`}
           aria-label={view === 'links' ? 'Links' : 'Videos'}
         >
-          <!-- Toolbar: view, status filter, then search, channel and sort, wrapping to fit the pane. -->
-          <div class="flex flex-none flex-wrap items-center gap-2 border-b p-2">
-            <!-- Same height, border and background as the small Select triggers beside it. -->
-            <div class="border-input dark:bg-input/30 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md border p-0.5" role="tablist" aria-label="View">
-              {#each [['links', 'Links'], ['videos', 'Videos']] as [k, label] (k)}
-                <button
-                  role="tab"
-                  aria-selected={view === k}
-                  class="flex h-full items-center rounded-[4px] px-2 text-sm font-medium transition-colors duration-150 {view === k
-                    ? 'bg-muted text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'}"
-                  onclick={() => ((view = k as 'links' | 'videos'), (limit = PAGE))}>{label}</button
-                >
-              {/each}
-            </div>
-            <Select.Root type="single" value={filter} onValueChange={(v) => v && setFilter(v)}>
-              <Select.Trigger size="sm" class="min-w-0 flex-[1_1_9rem]" aria-label="Filter by status">
-                <span class="flex w-full min-w-0 items-center justify-between gap-2">
-                  <span class="truncate">{FILTERS.find((f) => f.key === filter)?.label}</span>
-                  <span class="text-muted-foreground tabular-nums">{view === 'videos' ? groups.length : counts[filter]}</span>
-                </span>
-              </Select.Trigger>
-              <Select.Content>
-                {#each FILTERS as f (f.key)}
-                  {#if f.key !== 'pending' || counts.pending}
-                    <Select.Item value={f.key} label={f.label}>
-                      <span class="flex w-full items-center justify-between gap-4">
-                        <span>{f.label}</span>
-                        <span class="text-muted-foreground tabular-nums">{counts[f.key]}</span>
-                      </span>
-                    </Select.Item>
-                  {/if}
-                {/each}
-              </Select.Content>
-            </Select.Root>
-            <div class="relative min-w-0 flex-[2_1_9rem]">
-              <Search class="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-              <Input class="h-7 pl-8 text-sm" placeholder="Search" aria-label="Search links or video titles" bind:value={query} oninput={() => (limit = PAGE)} />
-            </div>
-            {#if report.channels.length > 1}
-              <Select.Root type="single" bind:value={channel} onValueChange={() => (limit = PAGE)}>
-                <Select.Trigger size="sm" class="min-w-0 flex-[1_1_7rem]"><span class="truncate">{channel === 'all' ? 'All channels' : channelTitle[channel]}</span></Select.Trigger>
-                <Select.Content>
-                  <Select.Item value="all" label="All channels" />
-                  {#each report.channels as c (c.id)}<Select.Item value={c.id} label={c.title} />{/each}
-                </Select.Content>
-              </Select.Root>
+          <!-- Toolbar, one row: what the list shows, search (an icon until it's used), and icon menus
+               for the view, status filter, channel and sort. A dot marks a menu that's changed. -->
+          <div class="flex h-11 flex-none items-center gap-0.5 border-b px-2">
+            {#if searching || query}
+              <div class="relative min-w-0 flex-1">
+                <Search class="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+                <Input
+                  bind:ref={searchEl}
+                  class="h-7 pr-7 pl-8 text-sm"
+                  placeholder="Search links or videos"
+                  aria-label="Search links or video titles"
+                  bind:value={query}
+                  oninput={() => (limit = PAGE)}
+                  onkeydown={(e) => e.key === 'Escape' && ((query = ''), (searching = false))}
+                  onblur={() => !query && (searching = false)}
+                />
+                {#if query}
+                  <button
+                    class="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5"
+                    aria-label="Clear search"
+                    onclick={() => ((query = ''), (searching = false))}><X class="size-3.5" /></button
+                  >
+                {/if}
+              </div>
+            {:else}
+              <div class="min-w-0 flex-1 truncate px-1 text-sm">
+                <span class="font-medium">{view === 'links' ? 'Links' : 'Videos'}</span>
+                <span class="text-muted-foreground"> · {FILTERS.find((f) => f.key === filter)?.label}{#if channel !== 'all'}{' · '}{channelTitle[channel]}{/if} · <span class="tabular-nums">{(view === 'links' ? rows.length : groups.length).toLocaleString()}</span></span>
+              </div>
+              <Button size="icon-sm" variant="ghost" aria-label="Search" title="Search" onclick={() => (searching = true)}><Search /></Button>
             {/if}
+
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                {#snippet child({ props })}
+                  <Button {...props} size="icon-sm" variant="ghost" aria-label="View: {view === 'links' ? 'Links' : 'Videos'}" title="View">
+                    {#if view === 'links'}<Link2 />{:else}<Clapperboard />{/if}
+                  </Button>
+                {/snippet}
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content align="end" class="w-56">
+                <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Show</DropdownMenu.Label>
+                <DropdownMenu.RadioGroup value={view} onValueChange={(v) => ((view = v as 'links' | 'videos'), (limit = PAGE))}>
+                  <DropdownMenu.RadioItem value="links"><Link2 /> Links <span class="text-muted-foreground ml-auto text-xs tabular-nums">{rows.length.toLocaleString()}</span></DropdownMenu.RadioItem>
+                  <DropdownMenu.RadioItem value="videos"><Clapperboard /> Videos <span class="text-muted-foreground ml-auto text-xs tabular-nums">{groups.length.toLocaleString()}</span></DropdownMenu.RadioItem>
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
+
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                {#snippet child({ props })}
+                  <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Filter by status: {FILTERS.find((f) => f.key === filter)?.label}" title="Filter by status">
+                    <ListFilter />{#if filter !== 'attention'}<span class="bg-foreground absolute top-1 right-1 size-1.5 rounded-full"></span>{/if}
+                  </Button>
+                {/snippet}
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content align="end" class="w-60">
+                <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Status</DropdownMenu.Label>
+                <DropdownMenu.RadioGroup value={filter} onValueChange={(v) => v && setFilter(v)}>
+                  {#each FILTERS as f (f.key)}
+                    {#if f.key !== 'pending' || counts.pending}
+                      <DropdownMenu.RadioItem value={f.key}>
+                        {f.label}<span class="text-muted-foreground ml-auto text-xs tabular-nums">{counts[f.key]}</span>
+                      </DropdownMenu.RadioItem>
+                    {/if}
+                  {/each}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
+
+            {#if report.channels.length > 1}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger>
+                  {#snippet child({ props })}
+                    <Button {...props} size="icon-sm" variant="ghost" class="relative" aria-label="Channel: {channel === 'all' ? 'All channels' : channelTitle[channel]}" title="Channel">
+                      <Tv />{#if channel !== 'all'}<span class="bg-foreground absolute top-1 right-1 size-1.5 rounded-full"></span>{/if}
+                    </Button>
+                  {/snippet}
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Content align="end" class="w-60">
+                  <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Channel</DropdownMenu.Label>
+                  <DropdownMenu.RadioGroup value={channel} onValueChange={(v) => v && ((channel = v), (limit = PAGE))}>
+                    <DropdownMenu.RadioItem value="all">All channels</DropdownMenu.RadioItem>
+                    {#each report.channels as c (c.id)}<DropdownMenu.RadioItem value={c.id}><span class="truncate">{c.title}</span></DropdownMenu.RadioItem>{/each}
+                  </DropdownMenu.RadioGroup>
+                </DropdownMenu.Content>
+              </DropdownMenu.Root>
+            {/if}
+
             {#if view === 'links'}
-              <Select.Root type="single" bind:value={sort}>
-                <Select.Trigger size="sm" class="min-w-0 flex-[1_1_6rem]" aria-label="Sort">{sort === 'az' ? 'A–Z' : 'Most videos'}</Select.Trigger>
-                <Select.Content>
-                  <Select.Item value="videos" label="Most videos" />
-                  <Select.Item value="az" label="A–Z" />
-                </Select.Content>
-              </Select.Root>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger>
+                  {#snippet child({ props })}
+                    <Button {...props} size="icon-sm" variant="ghost" aria-label="Sort: {sort === 'az' ? 'A to Z' : 'Most videos'}" title="Sort"><ArrowUpDown /></Button>
+                  {/snippet}
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Content align="end" class="w-48">
+                  <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">Sort</DropdownMenu.Label>
+                  <DropdownMenu.RadioGroup bind:value={sort}>
+                    <DropdownMenu.RadioItem value="videos">Most videos</DropdownMenu.RadioItem>
+                    <DropdownMenu.RadioItem value="az">A–Z</DropdownMenu.RadioItem>
+                  </DropdownMenu.RadioGroup>
+                </DropdownMenu.Content>
+              </DropdownMenu.Root>
             {/if}
           </div>
 
@@ -406,6 +483,7 @@
                 {@const v = g.video}
                 {@const on = !stacked && currentGroup?.video.id === v.id}
                 {@const published = shortDate(v.publishedAt)}
+                {@const summary = g.chips.map((c) => `${c.n} ${c.label}`).join(' · ')}
                 <!-- A row with the thumbnail on the left; a card with it on top when the pane is narrow. -->
                 <button
                   data-video={v.id}
@@ -428,11 +506,14 @@
                     <span class="text-muted-foreground mt-0.5 block truncate text-xs">
                       {#if report.channels.length > 1}{channelTitle[v.channelId] ?? 'Unknown channel'}{#if published}{' · '}{/if}{/if}{published ?? ''}
                     </span>
-                    <span class="mt-1.5 flex flex-wrap gap-1">
-                      {#each g.chips as c (c.label)}
-                        <span class="inline-flex h-5 items-center rounded-full border px-1.5 text-xs font-medium tabular-nums {c.cls}">{c.n} {c.label}</span>
-                      {/each}
-                    </span>
+                    <!-- Traffic lights: one dot per kind of link in the video; the counts are in the tooltip. -->
+                    <Hint text={summary}>
+                      {#snippet children(props)}
+                        <span {...props} class="mt-1.5 inline-flex items-center gap-1 py-0.5" aria-label={summary}>
+                          {#each g.chips as c (c.label)}<span class="size-2.5 rounded-full" style="background: {c.color}"></span>{/each}
+                        </span>
+                      {/snippet}
+                    </Hint>
                   </span>
                 </button>
               {:else}

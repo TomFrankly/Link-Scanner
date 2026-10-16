@@ -5,22 +5,23 @@ import { FIXABLE, type Problem } from '$shared/fixes';
 import type { Category } from '$shared/core';
 import type { Row, VideoRef } from '$lib/types';
 
-// Order inside a video, and the chip groups that summarize it.
+// Order inside a video, and the groups that summarize it: chips in the video's header, colored
+// dots (the health bar's palette) in the list.
 const ORDER: Category[] = ['broken', 'parked', 'domain-changed', 'destination-changed', 'homepage', 'unverifiable', 'pending', 'ignored', 'ok'];
-const GROUPS: { label: string; tint: Category; match: Category[] }[] = [
-  { label: 'broken', tint: 'broken', match: ['broken', 'parked'] },
-  { label: 'redirected', tint: 'domain-changed', match: ['domain-changed', 'destination-changed', 'homepage'] },
-  { label: 'unverified', tint: 'unverifiable', match: ['unverifiable'] },
-  { label: 'not checked', tint: 'pending', match: ['pending'] },
-  { label: 'ignored', tint: 'ignored', match: ['ignored'] },
-  { label: 'OK', tint: 'ok', match: ['ok'] },
+const GROUPS: { label: string; tint: Category; color: string; match: Category[] }[] = [
+  { label: 'broken', tint: 'broken', color: '#d03b3b', match: ['broken', 'parked'] },
+  { label: 'redirected', tint: 'domain-changed', color: '#fab219', match: ['domain-changed', 'destination-changed', 'homepage'] },
+  { label: 'unverified', tint: 'unverifiable', color: 'var(--chart-neutral)', match: ['unverifiable'] },
+  { label: 'not checked', tint: 'pending', color: 'var(--chart-faint)', match: ['pending'] },
+  { label: 'ignored', tint: 'ignored', color: 'var(--chart-faint)', match: ['ignored'] },
+  { label: 'OK', tint: 'ok', color: '#0ca30c', match: ['ok'] },
 ];
 
 export interface VideoGroup {
   video: VideoRef;
   links: Row[];
   problems: Problem[];
-  chips: { label: string; n: number; cls: string }[];
+  chips: { label: string; n: number; cls: string; color: string }[];
 }
 
 /**
@@ -49,6 +50,7 @@ export function groupVideos(rows: Row[], allRows: Row[]): VideoGroup[] {
         label: g.label,
         n: links.filter((r) => g.match.includes(r.cls.category)).length,
         cls: CATEGORY[g.tint].cls,
+        color: g.color,
       })).filter((c) => c.n);
       return { video, links, problems, chips };
     })
