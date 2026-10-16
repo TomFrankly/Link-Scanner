@@ -11,7 +11,8 @@ Scans the public video descriptions of YouTube channels and flags links that are
   - `check` messages follow each link's redirect chain, 6 links per message, grouped by host and spaced per host.
 - **Shared results:** a link's check result is stored once and shared by every workspace. Each workspace's exception lists are applied in the browser, so rule changes reclassify instantly.
 - **Quota:** each YouTube call is metered against `GLOBAL_DAILY_UNITS` (default 8,000 of the key's 10,000). Each workspace also has daily scan limits and a channel cap, editable on the Admin page. Both daily counts reset at midnight Pacific time, when YouTube resets its own quota.
-- **Saved edits:** a hand edit in the Fix description drawer can be saved as a whole-line find-and-replace rule (`shared/textEdits.ts`), for that video or every video whose saved description has the same lines. Rules run before planned link fixes, in the drawer and the Excel export.
+- **Link fixes:** any link can be replaced or removed in descriptions, for every channel in the workspace or one channel (`link_fixes.channel_id`). In the Fix description drawer, clicking a link opens a popover to change it.
+- **Saved edits:** a hand edit in the Fix description drawer can be saved as a whole-line find-and-replace rule (`shared/textEdits.ts`), for that video or every video whose saved description has the same lines (optionally in one channel). A hand edit that only changes a link is offered as a link fix instead. Rules run before planned link fixes, in the drawer and the Excel export.
 - **Defaults:** app-wide accepted redirects and redirector domains live in `shared/rules.ts` and change with a deploy. A deployment can add its own accepted redirects with the `EXTRA_ACCEPTED_REDIRECTS` var in `wrangler.jsonc` (comma-separated `from>to` pairs, e.g. `old-brand.com>new-brand.com`). Workspaces can turn individual defaults off.
 
 ## Layout

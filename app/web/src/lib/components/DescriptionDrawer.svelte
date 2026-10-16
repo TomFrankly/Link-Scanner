@@ -17,6 +17,8 @@
   import Save from '@lucide/svelte/icons/save';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
   import SaveEditsDialog from './SaveEditsDialog.svelte';
+  import DescriptionEditor, { type LinkClick } from './DescriptionEditor.svelte';
+  import LinkPopover from './LinkPopover.svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import PlanFixButton from './PlanFixButton.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -25,8 +27,8 @@
   import PlannedFix from './PlannedFix.svelte';
   import { api } from '$lib/api';
   import { app, data, removeTextEdit, ui } from '$lib/store.svelte';
-  import { applyFixes, FIXABLE, highlightRanges, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
-  import { applyTextEdits, editsFromHandEdit, type FoundEdit } from '$shared/textEdits';
+  import { applyFixes, FIXABLE, REDIRECTS, removeLinks, updateRedirects, type FixResult, type Problem } from '$shared/fixes';
+  import { applyTextEdits, editsFromHandEdit, splitLinkSwaps, type FoundEdit, type LinkSwap } from '$shared/textEdits';
 
   const MIN = 220;
   // Room left above the drawer at full height, so the top bar stays visible.
@@ -83,16 +85,21 @@
     for (const r of data.rows) for (const v of r.videos) if (v.id === ui.drawerVideoId) return v;
     return null;
   });
-  // This video's links that the fixes can act on (broken or redirected), in the shape shared/fixes.ts expects.
-  const links = $derived(data.rows.filter((r) => r.videos.some((v) => v.id === ui.drawerVideoId) && FIXABLE.includes(r.cls.category)));
+  // This video's links that the fixes act on, in the shape shared/fixes.ts expects: problem links
+  // (broken or redirected), plus any working link with a planned fix (e.g. a swapped affiliate link).
+  const links = $derived(
+    data.rows.filter((r) => r.videos.some((v) => v.id === ui.drawerVideoId) && (FIXABLE.includes(r.cls.category) || data.fixes.for(r.url, video?.channelId ?? ''))),
+  );
   const problems = $derived<Problem[]>(
     links.map((r) => ({ url: r.url, category: r.cls.category, finalUrl: r.result?.finalUrl ?? null, detail: r.cls.detail ?? null })),
   );
+  // Just the broken or redirected ones, for the "Remove all" and "Update all redirects" tabs.
+  const problemOnly = $derived(problems.filter((p) => FIXABLE.includes(p.category)));
   // The planned fix for each of those links, keyed by URL; links without one get a FIX THIS marker.
   const decisions = $derived(
     Object.fromEntries(
       links.flatMap((r) => {
-        const fix = data.fixes.get(r.url);
+        const fix = data.fixes.for(r.url, video?.channelId ?? '');
         return fix ? [[r.url, { action: fix.action, replacement: fix.replacement }]] : [];
       }),
     ),
@@ -123,14 +130,14 @@
   let mode = $state<'apply' | 'remove' | 'redirects' | 'original'>('apply');
   // The description with the workspace's saved text edits applied; the link fixes run on this.
   const textEdits = $derived(app.report?.textEdits ?? []);
-  const source = $derived(description === null ? null : applyTextEdits(description, textEdits, ui.drawerVideoId ?? ''));
+  const source = $derived(description === null ? null : applyTextEdits(description, textEdits, ui.drawerVideoId ?? '', video?.channelId ?? ''));
   // The saved edits that changed this video, listed beside the editor.
   const savedHere = $derived((source?.used ?? []).map((i) => textEdits[i]!));
   const generated = $derived.by((): FixResult | null => {
     if (description === null || source === null) return null;
     if (mode === 'original') return { text: description, changed: 0, parts: [{ text: description }], origin: description.split('\n').map((_, i) => i) };
     const fixed =
-      mode === 'remove' ? removeLinks(source.text, problems) : mode === 'redirects' ? updateRedirects(source.text, problems) : applyFixes(source.text, problems, decisions);
+      mode === 'remove' ? removeLinks(source.text, problemOnly) : mode === 'redirects' ? updateRedirects(source.text, problemOnly) : applyFixes(source.text, problems, decisions);
     return { ...fixed, changed: fixed.changed + source.changed };
   });
 
@@ -156,26 +163,10 @@
     ...(generated?.parts ?? []).filter((p) => p.hl && p.text.trim()).map((p) => p.text),
     ...(mode !== 'original' ? (source?.added ?? []) : []),
   ]);
-  const segments = $derived.by(() => {
-    const out: { t: string; hl: boolean }[] = [];
-    let at = 0;
-    for (const r of highlightRanges(text, needles)) {
-      if (r.start > at) out.push({ t: text.slice(at, r.start), hl: false });
-      out.push({ t: text.slice(r.start, r.end), hl: true });
-      at = r.end;
-    }
-    // A <pre> drops a final line break that a textarea shows as an empty line; the extra one evens them out.
-    out.push({ t: text.slice(at) + '\n', hl: false });
-    return out;
-  });
   // Highlight color per tab: red for removals, green for updated redirects, amber otherwise.
   const tint = $derived(
     mode === 'remove' ? 'bg-[#d03b3b]/15 dark:bg-[#d03b3b]/30' : mode === 'redirects' ? 'bg-[#0ca30c]/15 dark:bg-[#0ca30c]/30' : 'bg-[#fab219]/30',
   );
-
-  // The highlight layer can't scroll by itself (it ignores the pointer), so it follows the textarea.
-  let overlay = $state<HTMLPreElement>();
-  const syncScroll = (e: Event) => overlay && (overlay.scrollTop = (e.currentTarget as HTMLTextAreaElement).scrollTop);
 
   async function copy() {
     try {
@@ -190,27 +181,70 @@
     if (generated) text = generated.text;
   }
 
-  // ---- saving a hand edit as text edits ----
-  // The changes found in the hand edit; setting this opens SaveEditsDialog.
-  let found = $state<FoundEdit[] | null>(null);
+  // ---- saving a hand edit ----
+  // What changed, ready to save; setting this opens SaveEditsDialog. `swaps` are links changed
+  // in place (saved as planned link fixes by default), `edits` are other changed lines.
+  let found = $state<{ edits: FoundEdit[]; swaps: LinkSwap[] } | null>(null);
   // Saving needs a base the edit can be traced back to, which the Original tab (YouTube's text,
   // before saved edits) isn't.
   const canSave = $derived(edited && mode !== 'original' && description !== null);
   function startSave() {
-    if (!editBase) return;
-    const edits = editsFromHandEdit(editBase.source, editBase.shown, text);
-    if (edits.length) found = edits;
+    if (!editBase || !video) return;
+    const edits: FoundEdit[] = [];
+    const swaps: LinkSwap[] = [];
+    for (const e of editsFromHandEdit(editBase.source, editBase.shown, text)) {
+      const split = splitLinkSwaps(e);
+      if (split.rest) edits.push(split.rest);
+      for (const s of split.swaps) {
+        const fix = data.fixes.for(s.from, video.channelId);
+        // Already planned: the drawer showed this replacement, and the user left it alone.
+        if (fix?.action === 'replace' && fix.replacement === s.to) continue;
+        // A link no scan has seen can't have a planned fix, so it stays a line edit.
+        if (!data.rows.some((r) => r.url === s.from)) {
+          if (!edits.some((x) => x.find === s.find)) edits.push({ find: s.find, replace: s.replace });
+        } else if (!swaps.some((x) => x.from === s.from)) swaps.push(s);
+      }
+    }
+    if (edits.length || swaps.length) found = { edits, swaps };
     else toast.info('Nothing to save: only spacing or blank lines changed.');
   }
   function saved() {
     found = null;
     edited = false; // the generated text now includes the saved edit
-    toast.success('Edit saved. It applies here and in the Excel export.');
+    toast.success('Saved. It applies here and in the Excel export.');
+  }
+
+  // ---- clicking a link chip ----
+  let popLink = $state<LinkClick | null>(null);
+  // The scanned link a chip stands for: itself, or the link whose planned replacement it shows.
+  function sourceOf(url: string) {
+    if (data.rows.some((r) => r.url === url)) return url;
+    return links.find((r) => data.fixes.for(r.url, video?.channelId ?? '')?.replacement === url)?.url ?? null;
+  }
+  /** The popover's new address ('' removes the link): ask where to apply it. */
+  function linkChange(to: string) {
+    if (!popLink || !video) return;
+    const from = sourceOf(popLink.url);
+    if (!from) return;
+    // For "only in this video", the line as the saved edits see it, before and after. Only known
+    // while the text is what the drawer generated (no unsaved hand edits, not the Original tab).
+    let find = '';
+    let replace = '';
+    if (!edited && generated && source && mode !== 'original') {
+      const line = text.slice(0, popLink.from).split('\n').length - 1;
+      const src = source.text.split('\n')[generated.origin[line] ?? -1];
+      if (src?.includes(from)) {
+        find = src;
+        replace = to ? src.split(from).join(to) : src.split(from).join('').replace(/[ \t]{2,}/g, ' ').trimEnd();
+      }
+    }
+    popLink = null;
+    found = { edits: [], swaps: [{ from, to, find, replace }] };
   }
 
   const close = () => (ui.drawerVideoId = null);
   // Escape closes the drawer, unless a dialog is open on top of it (Escape closes that instead).
-  const onKey = (e: KeyboardEvent) => e.key === 'Escape' && ui.drawerVideoId && !ui.fixLinkUrl && !found && close();
+  const onKey = (e: KeyboardEvent) => e.key === 'Escape' && ui.drawerVideoId && !ui.fixLinkUrl && !found && !popLink && close();
   // A saved edit's first changed line, for the list beside the editor.
   const preview = (find: string, replace: string) => replace.split('\n').find((l) => l.trim() && !find.split('\n').includes(l)) ?? `Deleted: ${find.split('\n').find((l) => l.trim())}`;
 
@@ -253,7 +287,7 @@
       <div class="min-w-0 flex-1">
         <div class="truncate text-sm font-medium" title={video.title}>{video.title}</div>
         <div class="text-muted-foreground text-xs">
-          {links.length} problem link{links.length === 1 ? '' : 's'}<span class="hidden sm:inline"> · copy the result into Studio</span>
+          {problemOnly.length} problem link{problemOnly.length === 1 ? '' : 's'}<span class="hidden sm:inline"> · copy the result into Studio</span>
         </div>
       </div>
       <a class="text-muted-foreground hover:text-foreground hidden text-xs sm:inline" href="https://www.youtube.com/watch?v={video.id}" target="_blank" rel="noreferrer">Watch</a>
@@ -264,7 +298,7 @@
     </header>
 
     <div class="flex min-h-0 flex-1 flex-col md:flex-row">
-      <!-- The video's problem links and their planned fixes -->
+      <!-- The video's problem links, any other link with a planned change, and their fixes -->
       <aside class="max-h-40 shrink-0 overflow-y-auto border-b md:max-h-none md:w-80 md:border-r md:border-b-0">
         <div class="text-muted-foreground px-4 pt-3 pb-1 text-xs">Plan a fix for each link, and it's applied below.</div>
         <ul class="divide-y">
@@ -333,27 +367,16 @@
             <Skeleton class="h-3 w-3/4" /><Skeleton class="h-3 w-full" /><Skeleton class="h-3 w-5/6" /><Skeleton class="h-3 w-2/3" />
           </div>
         {:else}
-          <!-- A transparent textarea over a highlighted copy of its own text. A textarea can't style
-               parts of its text, so the <pre> behind it draws the text and the highlights, and the
-               textarea on top shows only the caret and selection. Both need identical font, padding,
-               wrapping and scrollbar space, or the highlights drift out of line with the text. -->
+          <!-- Links show as chips: click one to change it everywhere it's used. -->
           <div class="relative min-h-0 flex-1 overflow-hidden rounded-md border">
-            <pre
-              bind:this={overlay}
-              aria-hidden="true"
-              class="text-foreground pointer-events-none absolute inset-0 m-0 overflow-y-scroll p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap [scrollbar-color:transparent_transparent]">{#each segments as s, i (i)}{#if s.hl}<mark class="text-foreground rounded-[3px] {tint}">{s.t}</mark>{:else}{s.t}{/if}{/each}</pre>
-            <textarea
-              bind:value={text}
-              oninput={onInput}
-              onscroll={syncScroll}
-              spellcheck="false"
-              aria-label="Fixed description"
-              class="caret-foreground selection:bg-primary/25 absolute inset-0 h-full w-full resize-none overflow-y-scroll bg-transparent p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-transparent outline-none"
-            ></textarea>
+            <DescriptionEditor bind:value={text} {needles} {tint} oninput={onInput} onlink={(l) => (popLink = l)} />
           </div>
         {/if}
       </div>
     </div>
   </section>
-  <SaveEditsDialog edits={found} videoId={video.id} onclose={() => (found = null)} onsaved={saved} />
+  <SaveEditsDialog changes={found} videoId={video.id} channelId={video.channelId} onclose={() => (found = null)} onsaved={saved} />
+  {#if popLink}
+    <LinkPopover link={popLink} source={sourceOf(popLink.url)} onchange={linkChange} onclose={() => (popLink = null)} />
+  {/if}
 {/if}

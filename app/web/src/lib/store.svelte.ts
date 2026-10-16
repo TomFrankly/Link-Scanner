@@ -12,6 +12,7 @@ import { classify, cleanDomain, hostOf, type LinkResult, type Rules } from '$sha
 import { effectiveRules, type RuleRow, type RuleType } from '$shared/rules';
 import type { FoundEdit, TextEdit } from '$shared/textEdits';
 import { api } from './api';
+import { FixBook } from './fixbook';
 import type { LinkFix, Me, Report, Row, ScanState, VideoRef } from './types';
 
 export type Route = 'report' | 'exceptions' | 'channels' | 'members' | 'admin';
@@ -34,10 +35,16 @@ export const app = $state({
 });
 
 /**
- * Which link's fix dialog and which video's description drawer are open. `drawerHeight` is
- * published by the drawer so the report and the Help button can stay clear of it.
+ * Which link's fix dialog and which video's description drawer are open. `fixLinkChannel` is
+ * the scope the fix dialog opens on ('' = every channel). `drawerHeight` is published by the
+ * drawer so the report and the Help button can stay clear of it.
  */
-export const ui = $state({ fixLinkUrl: null as string | null, drawerVideoId: null as string | null, drawerHeight: 0 });
+export const ui = $state({
+  fixLinkUrl: null as string | null,
+  fixLinkChannel: '',
+  drawerVideoId: null as string | null,
+  drawerHeight: 0,
+});
 
 window.addEventListener('hashchange', () => (app.route = routeFromHash()));
 /** Navigates to a page; the hashchange listener above updates `app.route`. */
@@ -85,7 +92,11 @@ class Derived {
   base = $derived(buildBase(app.report));
   rules: Rules = $derived(app.report ? effectiveRules(app.report.rules, app.report.defaults) : { accepted: [], redirectors: [], ignored: [] });
   rows: Row[] = $derived(this.base.map((r) => ({ ...r, cls: classify(r.result, r.url, this.rules) })));
-  fixes = $derived(new Map<string, LinkFix>((app.report?.fixes ?? []).map((f) => [f.url, f])));
+  fixes = $derived(new FixBook(app.report?.fixes ?? []));
+  /** Each video's channel id, for channel-scoped fixes and edits. */
+  channelOf = $derived(new Map((app.report?.videos ?? []).map((v) => [v.id, v.c])));
+  /** Channel names by id. */
+  channelTitle = $derived(Object.fromEntries((app.report?.channels ?? []).map((c) => [c.id, c.title])) as Record<string, string>);
 }
 /** Report rows and planned fixes, derived from `app.report`. Read-only: change `app.report` instead. */
 export const data = new Derived();
@@ -206,7 +217,7 @@ export async function loadDescriptions() {
 }
 
 /** Saves hand edits as text edits; `videos` null applies one to every video with its text. */
-export async function saveTextEdits(edits: (FoundEdit & { videos: string[] | null })[]) {
+export async function saveTextEdits(edits: (FoundEdit & { videos: string[] | null; channelId?: string | null })[]) {
   if (!app.report) return false;
   try {
     const res = await api<{ textEdits: TextEdit[] }>(`/w/${app.wsId}/text-edits`, { method: 'POST', body: { edits } });
@@ -230,13 +241,21 @@ export async function removeTextEdit(id: number) {
   }
 }
 
-/** Plans a fix for a link (used when generating corrected descriptions), or clears it. */
-export async function setFix(url: string, action: 'remove' | 'replace' | 'clear', replacement?: string) {
+/**
+ * Plans a fix for a link (used when generating corrected descriptions), or clears it, for every
+ * channel or just `channelId`. `quiet` skips the toast.
+ */
+export async function setFix(
+  url: string,
+  action: 'remove' | 'replace' | 'clear',
+  replacement?: string,
+  { quiet = false, channelId = '' }: { quiet?: boolean; channelId?: string } = {},
+) {
   if (!app.report) return false;
   try {
-    const res = await api<{ fixes: LinkFix[] }>(`/w/${app.wsId}/fixes`, { method: 'POST', body: { url, action, replacement } });
+    const res = await api<{ fixes: LinkFix[] }>(`/w/${app.wsId}/fixes`, { method: 'POST', body: { url, action, replacement, channelId } });
     app.report.fixes = res.fixes;
-    toast.success(action === 'clear' ? 'Planned fix cleared' : action === 'remove' ? 'Marked for removal' : 'Replacement saved');
+    if (!quiet) toast.success(action === 'clear' ? 'Planned fix cleared' : action === 'remove' ? 'Marked for removal' : 'Replacement saved');
     return true;
   } catch (e) {
     fail(e);

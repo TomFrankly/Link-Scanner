@@ -12,6 +12,7 @@
 import { applyFixes, type Decision, type Problem } from '$shared/fixes';
 import { applyTextEdits, type TextEdit } from '$shared/textEdits';
 import { CATEGORY } from './categories';
+import type { FixBook } from './fixbook';
 import type { LinkFix, Row } from './types';
 
 /** Columns for the one-row-per-link layout (CSV, Sheets, and the Excel "Links" sheet). */
@@ -33,15 +34,21 @@ type Cell = string | number | null;
 /** The Details cell: the classifier's note, or "Accepted redirect" for one a rule accepted. */
 const detailText = (r: Row) => r.cls.detail ?? (r.cls.accepted ? 'Accepted redirect' : '');
 
-/** Planned fixes, keyed by link URL (data.fixes in the store). */
-export type Fixes = Map<string, LinkFix>;
+/** Planned fixes, looked up by link and channel (data.fixes in the store). */
+export type Fixes = FixBook;
 
-/** The Planned fix cell: what will happen to this link when descriptions are fixed. */
-const fixText = (r: Row, fixes: Fixes) => {
-  const fix = fixes.get(r.url);
-  if (!fix) return '';
-  return fix.action === 'remove' ? 'Remove from descriptions' : `Replace with ${fix.replacement ?? ''}`;
-};
+const describe = (fix: LinkFix) => (fix.action === 'remove' ? 'Remove from descriptions' : `Replace with ${fix.replacement ?? ''}`);
+
+/**
+ * The Planned fix cell: what will happen to this link when descriptions are fixed. On the
+ * per-link sheets a fix limited to one channel names it; per video, it's the fix for that
+ * video's channel.
+ */
+const fixText = (r: Row, fixes: Fixes, channelTitle: Record<string, string>) =>
+  fixes
+    .all(r.url)
+    .map((f) => (f.channelId ? `${describe(f)} (${channelTitle[f.channelId] ?? f.channelId} only)` : describe(f)))
+    .join('; ');
 
 /** One row per link, matching HEADER. `join` separates the per-video values packed into one cell. */
 function linkRows(rows: Row[], channelTitle: Record<string, string>, fixes: Fixes, join: string): Cell[][] {
@@ -52,7 +59,7 @@ function linkRows(rows: Row[], channelTitle: Record<string, string>, fixes: Fixe
       r.url,
       r.result && r.result.finalUrl !== r.url ? r.result.finalUrl : '',
       detailText(r),
-      fixText(r, fixes),
+      fixText(r, fixes, channelTitle),
       // The chain lists every URL visited, starting with the link itself.
       r.result ? Math.max(0, r.result.chain.length - 1) : null,
       r.videos.length,
@@ -77,7 +84,7 @@ function videoRows(rows: Row[], channelTitle: Record<string, string>, fixes: Fix
       r.url,
       r.result && r.result.finalUrl !== r.url ? r.result.finalUrl : '',
       detailText(r),
-      fixText(r, fixes),
+      (() => { const f = fixes.for(r.url, v.channelId); return f ? describe(f) : ''; })(),
     ]),
   );
 }
@@ -106,12 +113,15 @@ function descriptionRows(
   const newestFirst = [...videos.values()].sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? ''));
   return newestFirst.map((v) => {
     const desc = saved.get(v.id);
-    const planned = allRows.filter((r) => fixes.has(r.url) && r.videos.some((x) => x.id === v.id));
+    const planned = allRows.filter((r) => fixes.for(r.url, v.channelId) && r.videos.some((x) => x.id === v.id));
     const problems: Problem[] = planned.map((r) => ({ url: r.url, category: r.cls.category, finalUrl: r.result?.finalUrl ?? null, detail: r.cls.detail ?? null }));
     const decisions: Record<string, Decision> = Object.fromEntries(
-      planned.map((r) => [r.url, { action: fixes.get(r.url)!.action, replacement: fixes.get(r.url)!.replacement }]),
+      planned.map((r) => {
+        const f = fixes.for(r.url, v.channelId)!;
+        return [r.url, { action: f.action, replacement: f.replacement }];
+      }),
     );
-    const edited = desc?.d != null ? applyTextEdits(desc.d, textEdits, v.id) : null;
+    const edited = desc?.d != null ? applyTextEdits(desc.d, textEdits, v.id, v.channelId) : null;
     const fixed = edited && problems.length ? applyFixes(edited.text, problems, decisions) : null;
     const text = edited === null ? 'Not saved yet. Run a full scan to fetch descriptions.' : (fixed?.text ?? edited.text);
     return [

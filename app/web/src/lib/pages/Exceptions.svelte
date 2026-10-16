@@ -10,7 +10,7 @@
   import * as Card from '$lib/components/ui/card';
   import { Input } from '$lib/components/ui/input';
   import { acceptedKey, type RuleRow, type RuleType } from '$shared/rules';
-  import { addRule, app, loadDescriptions, removeRule, removeTextEdit } from '$lib/store.svelte';
+  import { addRule, app, data, loadDescriptions, removeRule, removeTextEdit } from '$lib/store.svelte';
   import { applyTextEdits, type TextEdit } from '$shared/textEdits';
 
   const report = $derived(app.report!);
@@ -44,14 +44,15 @@
         const counts = new Map<number, number>(edits.map((e) => [e.id, 0]));
         for (const [id, x] of all) {
           if (x.d == null) continue;
-          for (const i of applyTextEdits(x.d, edits, id).used) counts.set(edits[i]!.id, counts.get(edits[i]!.id)! + 1);
+          for (const i of applyTextEdits(x.d, edits, id, data.channelOf.get(id) ?? '').used) counts.set(edits[i]!.id, counts.get(edits[i]!.id)! + 1);
         }
         editCounts = counts;
       })
       .catch(() => (editCounts = null));
   });
   const lines = (s: string) => (s === '' ? [] : s.split('\n'));
-  const scope = (e: TextEdit) => (e.videos ? `Chosen videos (${e.videos.length})` : 'Every video with these lines');
+  const scope = (e: TextEdit) =>
+    e.videos ? `Chosen videos (${e.videos.length})` : e.channelId ? `${data.channelTitle[e.channelId] ?? 'One channel'}: every video with these lines` : 'Every video with these lines';
 
   // "alex · 3/14/2026": who added a rule and when, by the email's name part.
   const addedLine = (r: Pick<RuleRow, 'addedBy' | 'addedAt'>) => `${r.addedBy.split('@')[0]} · ${new Date(r.addedAt).toLocaleDateString()}`;

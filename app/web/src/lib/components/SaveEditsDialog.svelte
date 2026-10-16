@@ -1,20 +1,49 @@
 <script lang="ts">
-  // Saves a hand edit from the Fix description drawer as text edits (shared/textEdits.ts).
-  // The drawer works out which lines changed and passes them in as `edits`; this dialog shows
-  // each change, searches every other video's saved description for the same lines, and lets
-  // the user pick which of those videos get the change too. Saved descriptions come from full
-  // scans, so the search costs no YouTube quota.
-  //
-  // A change applied to every match is saved with `videos: null`, so it also reaches videos
-  // that get the same lines later. Unticking any video saves an explicit list instead.
+  // Saves a hand edit from the Fix description drawer. The drawer works out what changed and
+  // passes it in as `changes`:
+  // - `swaps`: links changed inside an otherwise unchanged line (shared/textEdits.ts
+  //   splitLinkSwaps), or a link edited or removed from its chip in the editor (`to` is '' for a
+  //   removal). By default each becomes a planned link fix, which changes the link in every video
+  //   that has it, whatever text surrounds it. It can be limited to this video's channel, or
+  //   saved as a text edit for just this video.
+  // - `edits`: other changed lines, saved as text edits. For each, this dialog searches every
+  //   other video's saved description for the same lines and lets the user pick which of those
+  //   videos get the change too. Saved descriptions come from full scans, so the search costs no
+  //   YouTube quota. A change applied to every match is saved with `videos: null`, so it also
+  //   reaches videos that get the same lines later; unticking any video saves an explicit list.
+  //   In a workspace with several channels, the search can be limited to this video's channel.
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
-  import { applyTextEdits, contains, type FoundEdit } from '$shared/textEdits';
-  import { app, loadDescriptions, saveTextEdits } from '$lib/store.svelte';
+  import { applyTextEdits, contains, type FoundEdit, type LinkSwap } from '$shared/textEdits';
+  import { app, data, loadDescriptions, saveTextEdits, setFix } from '$lib/store.svelte';
 
-  let { edits, videoId, onclose, onsaved }: { edits: FoundEdit[] | null; videoId: string; onclose: () => void; onsaved: () => void } =
-    $props();
+  let {
+    changes,
+    videoId,
+    channelId,
+    onclose,
+    onsaved,
+  }: {
+    changes: { edits: FoundEdit[]; swaps: LinkSwap[] } | null;
+    videoId: string;
+    channelId: string;
+    onclose: () => void;
+    onsaved: () => void;
+  } = $props();
+  const channelName = $derived(data.channelTitle[channelId] ?? 'this channel');
+  const edits = $derived(changes?.edits.length ? changes.edits : null);
+  const swaps = $derived(changes?.swaps ?? []);
+
+  // Per link swap: change it in every video or in this channel's videos (a planned fix), or only
+  // in this video (a text edit).
+  let swapScope = $state<('all' | 'channel' | 'here')[]>([]);
+  $effect(() => {
+    swapScope = swaps.map(() => 'all');
+  });
+  const videosWith = (url: string) => data.rows.find((r) => r.url === url)?.videos ?? [];
+  const inChannel = (url: string) => videosWith(url).filter((v) => v.channelId === channelId).length;
+  const videos = (n: number) => (n === 1 ? 'the 1 video' : `all ${n} videos`);
 
   const titles = $derived(new Map((app.report?.videos ?? []).map((v) => [v.id, v.t])));
 
@@ -36,7 +65,7 @@
           if (v.id === videoId) continue;
           const d = all.get(v.id)?.d;
           if (d == null) missing++;
-          else out.set(v.id, applyTextEdits(d, rules, v.id).text);
+          else out.set(v.id, applyTextEdits(d, rules, v.id, v.c).text);
         }
         unsearched = missing;
         sources = out;
@@ -44,16 +73,26 @@
       .catch((e) => (loadError = (e as Error).message));
   });
 
-  // For each change, the other videos that contain its lines, newest first as the report lists them.
-  const matches = $derived(
+  // For each change, the other videos that contain its lines, newest first as the report lists
+  // them; with `onlyChannel` ticked, just those in this video's channel.
+  let onlyChannel = $state<boolean[]>([]);
+  const found = $derived(
     edits && sources ? edits.map((e) => [...sources!].filter(([, text]) => contains(text, e.find)).map(([id]) => id)) : null,
   );
+  const matches = $derived(found?.map((m, i) => (onlyChannel[i] ? m.filter((id) => data.channelOf.get(id) === channelId) : m)) ?? null);
+  // Whether a change's matches include another channel's videos, so the channel choice is worth showing.
+  const crossChannel = (i: number) => !!found?.[i]?.some((id) => data.channelOf.get(id) !== channelId);
   // Which matches are ticked, per change. Everything starts ticked.
   let picked = $state<Set<string>[]>([]);
   let shown = $state<boolean[]>([]);
   $effect(() => {
+    onlyChannel = (changes?.edits ?? []).map(() => false);
+  });
+  $effect(() => {
     picked = matches ? matches.map((m) => new Set(m)) : [];
-    shown = matches ? matches.map(() => false) : [];
+  });
+  $effect(() => {
+    shown = (changes?.edits ?? []).map(() => false);
   });
   function toggle(i: number, id: string) {
     const next = new Set(picked[i]);
@@ -64,17 +103,31 @@
   const toggleAll = (i: number) => (picked[i] = picked[i]!.size === matches![i]!.length ? new Set() : new Set(matches![i]));
 
   let saving = $state(false);
+  // Ready once the other videos have been searched (or the search failed).
+  const ready = $derived(!edits || !!matches || !!loadError);
   async function save() {
-    if (!edits || (!matches && !loadError)) return;
+    if (!changes || !ready) return;
     saving = true;
-    const ok = await saveTextEdits(
-      edits.map((e, i) => {
-        // If the search failed, the edit is saved for this video only.
-        const m = matches?.[i] ?? [];
-        const all = m.length > 0 && picked[i]!.size === m.length;
-        return { ...e, videos: all ? null : [videoId, ...(picked[i] ?? [])] };
-      }),
-    );
+    let ok = true;
+    for (const [i, s] of swaps.entries()) {
+      if (swapScope[i] === 'here') continue;
+      const opts = { quiet: true, channelId: swapScope[i] === 'channel' ? channelId : '' };
+      ok = (await (s.to ? setFix(s.from, 'replace', s.to, opts) : setFix(s.from, 'remove', undefined, opts))) && ok;
+    }
+    const lineEdits: (FoundEdit & { videos: string[] | null; channelId?: string | null })[] = (edits ?? []).map((e, i) => {
+      // If the search failed, the edit is saved for this video only.
+      const m = matches?.[i] ?? [];
+      const all = m.length > 0 && picked[i]!.size === m.length;
+      return all ? { ...e, videos: null, channelId: onlyChannel[i] ? channelId : null } : { ...e, videos: [videoId, ...(picked[i] ?? [])] };
+    });
+    // Swaps kept to this video go last: an edit above may include their line, unchanged, as context.
+    const seen = new Set<string>();
+    for (const [i, s] of swaps.entries())
+      if (swapScope[i] === 'here' && !seen.has(s.find)) {
+        seen.add(s.find);
+        lineEdits.push({ find: s.find, replace: s.replace, videos: [videoId] });
+      }
+    if (lineEdits.length) ok = (await saveTextEdits(lineEdits)) && ok;
     saving = false;
     if (ok) onsaved();
   }
@@ -83,17 +136,50 @@
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 </script>
 
-<Dialog.Root open={!!edits} onOpenChange={(o) => !o && onclose()}>
+<Dialog.Root open={!!changes} onOpenChange={(o) => !o && onclose()}>
   <Dialog.Content class="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-xl">
     <Dialog.Header>
-      <Dialog.Title>Save {edits && edits.length > 1 ? `${edits.length} edits` : 'edit'}</Dialog.Title>
+      <Dialog.Title>Save {(edits?.length ?? 0) + swaps.length > 1 ? 'changes' : 'change'}</Dialog.Title>
       <Dialog.Description>
-        Saved edits are applied whenever these descriptions are fixed here, and in the Excel export. Nothing changes on YouTube until you paste the new
+        Saved changes are applied whenever these descriptions are fixed here, and in the Excel export. Nothing changes on YouTube until you paste the new
         description.
       </Dialog.Description>
     </Dialog.Header>
 
     <div class="-mx-6 min-h-0 flex-1 space-y-4 overflow-y-auto px-6">
+      {#each swaps as s, i (s.from)}
+        {@const n = videosWith(s.from).length}
+        {@const nHere = inChannel(s.from)}
+        {@const verb = s.to ? 'Replace' : 'Remove'}
+        <div class="space-y-2.5 rounded-md border p-3">
+          <div class="space-y-0.5 font-mono text-xs break-all">
+            <div class="text-muted-foreground line-through">{s.from}</div>
+            <div>{s.to ? `→ ${s.to}` : '→ removed'}</div>
+          </div>
+          <div class="space-y-1.5" role="radiogroup" aria-label="Where to change this link">
+            <label class="flex cursor-pointer items-start gap-2 text-sm">
+              <input type="radio" name="swap-{i}" class="accent-foreground mt-1" checked={swapScope[i] === 'all'} onchange={() => (swapScope[i] = 'all')} />
+              <span>
+                {verb} this link in {videos(n)} that use it{nHere < n ? ', in every channel' : ''}
+                <span class="text-muted-foreground block text-xs">Saved as a planned fix, so it changes wherever the link appears, whatever text is around it.</span>
+              </span>
+            </label>
+            {#if nHere < n && nHere > 1}
+              <label class="flex cursor-pointer items-start gap-2 text-sm">
+                <input type="radio" name="swap-{i}" class="accent-foreground mt-1" checked={swapScope[i] === 'channel'} onchange={() => (swapScope[i] = 'channel')} />
+                <span>{verb} it in {channelName}'s {nHere} videos only</span>
+              </label>
+            {/if}
+            {#if s.find}
+              <label class="flex cursor-pointer items-start gap-2 text-sm">
+                <input type="radio" name="swap-{i}" class="accent-foreground mt-1" checked={swapScope[i] === 'here'} onchange={() => (swapScope[i] = 'here')} />
+                <span>Only in this video</span>
+              </label>
+            {/if}
+          </div>
+        </div>
+      {/each}
+
       {#each edits ?? [] as e, i (i)}
         <div class="space-y-2">
           <!-- The change itself, as removed and added lines. -->
@@ -113,6 +199,12 @@
           </div>
 
           <!-- Where else it appears. -->
+          {#if matches && (crossChannel(i) || onlyChannel[i])}
+            <label class="text-muted-foreground flex items-center gap-2 text-xs">
+              <input type="checkbox" class="accent-foreground size-3.5" checked={onlyChannel[i]} onchange={() => (onlyChannel[i] = !onlyChannel[i])} />
+              Only search videos in {channelName}
+            </label>
+          {/if}
           {#if loadError}
             <div class="text-xs text-[#b42d2d] dark:text-[#f07070]">Couldn't search other videos: {loadError}</div>
           {:else if !matches}
@@ -161,7 +253,7 @@
         </div>
       {/each}
 
-      {#if matches && unsearched > 0}
+      {#if edits && matches && unsearched > 0}
         <p class="text-muted-foreground text-xs">
           {plural(unsearched, 'video')} {unsearched === 1 ? "hasn't" : "haven't"} had {unsearched === 1 ? 'its' : 'their'} description saved yet, so {unsearched === 1
             ? 'it'
@@ -172,7 +264,7 @@
 
     <Dialog.Footer>
       <Button variant="outline" onclick={onclose}>Cancel</Button>
-      <Button onclick={save} disabled={saving || (!matches && !loadError)}>{saving ? 'Saving…' : 'Save'}</Button>
+      <Button onclick={save} disabled={saving || !ready}>{saving ? 'Saving…' : 'Save'}</Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>

@@ -74,6 +74,8 @@ export interface ApiLink extends Omit<LinkResult, 'chain' | 'parked'> {
 /** A workspace's decision for one link, applied when generating a fixed description. */
 export interface LinkFix {
   url: string;
+  /** '' for every channel, or the one channel whose videos it applies to (that wins over ''). */
+  channelId: string;
   action: 'remove' | 'replace';
   replacement: string | null;
   addedBy: string;

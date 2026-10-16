@@ -10,7 +10,11 @@
 // whitespace) don't stop a match. Rules run on the description as YouTube has it, oldest
 // rule first, and the planned link fixes (fixes.ts) run after them.
 //
+// A change that only swaps one link for another is better saved as a planned link fix, which
+// replaces the link in every video whatever text surrounds it; splitLinkSwaps finds those.
+//
 // Pure functions, used by the drawer and the Excel export; shared/textEdits.test.ts covers them.
+import { urlsIn } from './fixes.ts';
 
 /** A saved text edit, as the API returns it. */
 export interface TextEdit {
@@ -21,6 +25,8 @@ export interface TextEdit {
   replace: string;
   /** The videos it applies to, or null for every video where `find` appears (including future ones). */
   videos: string[] | null;
+  /** Limits it to one channel's videos; null for every channel. */
+  channelId?: string | null;
   addedBy: string;
   addedAt: string;
 }
@@ -37,7 +43,9 @@ const blank = (s: string) => !s.trim();
 /** Splits a rule's text into lines; empty text is no lines (so an empty `replace` deletes). */
 const toLines = (s: string) => (s === '' ? [] : s.split('\n'));
 
-export const appliesTo = (e: Pick<TextEdit, 'videos'>, videoId: string) => !e.videos || e.videos.includes(videoId);
+type Scope = Pick<TextEdit, 'videos' | 'channelId'>;
+export const appliesTo = (e: Scope, videoId: string, channelId: string) =>
+  (!e.videos || e.videos.includes(videoId)) && (!e.channelId || e.channelId === channelId);
 
 /** Whether `find` (whole lines) starts at line `i`. */
 function matchAt(lines: string[], find: string[], i: number) {
@@ -65,14 +73,14 @@ export interface EditResult {
   used: number[];
 }
 
-/** Applies every rule that covers `videoId`, in order, replacing each place its lines appear. */
-export function applyTextEdits(desc: string, edits: Pick<TextEdit, 'find' | 'replace' | 'videos'>[], videoId: string): EditResult {
+/** Applies every rule that covers the video, in order, replacing each place its lines appear. */
+export function applyTextEdits(desc: string, edits: (Scope & Pick<TextEdit, 'find' | 'replace'>)[], videoId: string, channelId: string): EditResult {
   const lines = desc.split('\n');
   let changed = 0;
   const added = new Set<string>();
   const used: number[] = [];
   edits.forEach((e, n) => {
-    if (!appliesTo(e, videoId)) return;
+    if (!appliesTo(e, videoId, channelId)) return;
     const f = toLines(e.find);
     if (!f.length) return;
     const r = toLines(e.replace);
@@ -197,4 +205,50 @@ export function editsFromHandEdit(source: string, shown: { text: string; origin:
     out.push({ find: find.join('\n'), replace: replace.join('\n') });
   }
   return out;
+}
+
+/** A link changed by hand: `from` became `to` in the line `find`, which now reads `replace`. */
+export interface LinkSwap {
+  from: string;
+  to: string;
+  find: string;
+  replace: string;
+}
+
+/** A line with each URL replaced by a placeholder, so two lines can be compared apart from their links. */
+const template = (line: string) => {
+  let out = '';
+  let at = 0;
+  for (const u of urlsIn(line)) {
+    out += line.slice(at, u.start) + '\u0000';
+    at = u.end;
+  }
+  return norm(out + line.slice(at));
+};
+
+/**
+ * Pulls link swaps out of a found edit. A changed line counts as a swap when it has the same
+ * links in the same places and only the URLs differ. Those lines are dropped from the edit
+ * (`rest`), which keeps any other changed lines, or is null when nothing else changed.
+ * Edits that add or remove lines are left whole.
+ */
+export function splitLinkSwaps(edit: FoundEdit): { swaps: LinkSwap[]; rest: FoundEdit | null } {
+  const f = toLines(edit.find);
+  const r = toLines(edit.replace);
+  if (f.length !== r.length) return { swaps: [], rest: edit };
+  const swaps: LinkSwap[] = [];
+  const kept = [...r];
+  f.forEach((line, k) => {
+    const next = r[k]!;
+    if (norm(line) === norm(next)) return;
+    const before = urlsIn(line);
+    const after = urlsIn(next);
+    if (!before.length || before.length !== after.length || template(line) !== template(next)) return;
+    before.forEach((u, i) => {
+      if (u.url !== after[i]!.url) swaps.push({ from: u.url, to: after[i]!.url, find: line, replace: next });
+    });
+    kept[k] = line; // the swap is saved separately, so this line no longer counts as a text edit
+  });
+  const changed = kept.some((l, k) => norm(l) !== norm(f[k]!));
+  return { swaps, rest: changed ? { find: edit.find, replace: kept.join('\n') } : null };
 }

@@ -56,6 +56,14 @@ function trimUrl(u: string) {
   return u;
 }
 
+/** Every URL in a piece of text, tokenized like the extractor, with where it starts and ends. */
+export function urlsIn(text: string): { url: string; start: number; end: number }[] {
+  return [...text.matchAll(URL_RE)].map((m) => {
+    const url = trimUrl(m[0]);
+    return { url, start: m.index, end: m.index + url.length };
+  });
+}
+
 interface Line {
   parts: Part[];
   hits: number;

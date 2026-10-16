@@ -160,7 +160,7 @@
                     {#if r.cls.detail}<div class="text-muted-foreground">{r.cls.detail}</div>{/if}
                     <PlannedFix url={r.url} />
                   </div>
-                  {#if FIXABLE.includes(r.cls.category)}<PlanFixButton row={r} />{/if}
+                  <PlanFixButton row={r} />
                 </div>
               </li>
             {/each}
@@ -168,7 +168,7 @@
           {#if g.problems.length}
             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
               <span class="text-muted-foreground text-xs">
-                {g.problems.filter((p) => data.fixes.has(p.url)).length} of {g.problems.length} problem links have a planned fix
+                {g.problems.filter((p) => data.fixes.for(p.url, g.video.channelId)).length} of {g.problems.length} problem links have a planned fix
               </span>
               <Button size="sm" onclick={() => (ui.drawerVideoId = v.id)}><FileText /> Fix description</Button>
             </div>

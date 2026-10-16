@@ -205,22 +205,38 @@ async function report(env: Env, ws: WorkspaceRow, role: Role) {
   };
 }
 
-/** The workspace's saved per-link fix decisions (see shared/fixes.ts applyFixes). */
+/**
+ * The workspace's saved per-link fix decisions (see shared/fixes.ts applyFixes). `channelId` ''
+ * applies to every channel; a fix for a specific channel wins over it for that channel's videos.
+ */
 const fixesQuery = (env: Env, wsId: string) =>
-  env.DB.prepare('SELECT url, action, replacement, added_by AS addedBy, added_at AS addedAt FROM link_fixes WHERE workspace_id = ?1').bind(wsId);
+  env.DB.prepare(
+    'SELECT url, channel_id AS channelId, action, replacement, added_by AS addedBy, added_at AS addedAt FROM link_fixes WHERE workspace_id = ?1',
+  ).bind(wsId);
+
+/** '' (every channel), or a channel id that must belong to the workspace. */
+async function channelScope(env: Env, ws: WorkspaceRow, v: unknown): Promise<string> {
+  if (v === undefined || v === null || v === '') return '';
+  const id = str(v);
+  const ok = await env.DB.prepare('SELECT 1 FROM workspace_channels WHERE workspace_id = ? AND channel_id = ?').bind(ws.id, id).first();
+  if (!ok) throw new HttpError(400, 'Channel not found in this workspace');
+  return id;
+}
 
 /**
- * Saves (or with `clear`, forgets) what to do with one of the workspace's links. The link
- * must appear in one of the workspace's videos. A replacement must be one http(s) URL.
+ * Saves (or with `clear`, forgets) what to do with one of the workspace's links, for every
+ * channel or just `channelId`. The link must appear in one of the workspace's videos. A
+ * replacement must be one http(s) URL.
  */
 async function setFix(
   env: Env,
   ws: WorkspaceRow,
   me: Me,
-  b: { url?: string; action?: 'remove' | 'replace' | 'clear'; replacement?: string | null },
+  b: { url?: string; action?: 'remove' | 'replace' | 'clear'; replacement?: string | null; channelId?: string },
 ) {
   const url = typeof b.url === 'string' ? b.url : '';
   if (!['remove', 'replace', 'clear'].includes(b.action as string)) throw new HttpError(400, 'Unknown action');
+  const channel = await channelScope(env, ws, b.channelId);
   const known = await env.DB.prepare(
     'SELECT 1 FROM video_links vl JOIN videos v ON v.id = vl.video_id JOIN workspace_channels wc ON wc.channel_id = v.channel_id WHERE wc.workspace_id = ? AND vl.url = ? LIMIT 1',
   )
@@ -228,7 +244,7 @@ async function setFix(
     .first();
   if (!url || !known) throw new HttpError(404, 'Link not found in this workspace');
   if (b.action === 'clear') {
-    await env.DB.prepare('DELETE FROM link_fixes WHERE workspace_id = ? AND url = ?').bind(ws.id, url).run();
+    await env.DB.prepare('DELETE FROM link_fixes WHERE workspace_id = ? AND url = ? AND channel_id = ?').bind(ws.id, url, channel).run();
   } else {
     let replacement: string | null = null;
     if (b.action === 'replace') {
@@ -238,11 +254,11 @@ async function setFix(
       if (!ok || replacement.length > MAX_REPLACEMENT_URL) throw new HttpError(400, 'Enter a full http(s) URL to replace it with');
     }
     await env.DB.prepare(
-      `INSERT INTO link_fixes (workspace_id, url, action, replacement, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT (workspace_id, url) DO UPDATE SET action = excluded.action, replacement = excluded.replacement,
+      `INSERT INTO link_fixes (workspace_id, url, channel_id, action, replacement, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (workspace_id, url, channel_id) DO UPDATE SET action = excluded.action, replacement = excluded.replacement,
          added_by = excluded.added_by, added_at = excluded.added_at`,
     )
-      .bind(ws.id, url, b.action, replacement, me.email, now())
+      .bind(ws.id, url, channel, b.action, replacement, me.email, now())
       .run();
   }
   return { fixes: (await fixesQuery(env, ws.id).all()).results };
@@ -251,9 +267,9 @@ async function setFix(
 /** The workspace's saved hand edits to descriptions, oldest first (the order they apply in). */
 const textEditsQuery = (env: Env, wsId: string) =>
   env.DB.prepare(
-    'SELECT id, find, replace, videos, added_by AS addedBy, added_at AS addedAt FROM text_edits WHERE workspace_id = ?1 ORDER BY id',
+    'SELECT id, find, replace, videos, channel_id AS channelId, added_by AS addedBy, added_at AS addedAt FROM text_edits WHERE workspace_id = ?1 ORDER BY id',
   ).bind(wsId);
-type EditRow = { id: number; find: string; replace: string; videos: string | null; addedBy: string; addedAt: string };
+type EditRow = { id: number; find: string; replace: string; videos: string | null; channelId: string | null; addedBy: string; addedAt: string };
 /** `videos` is stored as JSON text. */
 const parseEdits = (rows: EditRow[]) => rows.map((r) => ({ ...r, videos: r.videos === null ? null : (JSON.parse(r.videos) as string[]) }));
 const listEdits = async (env: Env, wsId: string) => ({ textEdits: parseEdits((await textEditsQuery(env, wsId).all<EditRow>()).results) });
@@ -261,11 +277,12 @@ const listEdits = async (env: Env, wsId: string) => ({ textEdits: parseEdits((aw
 /**
  * Saves the rules found in one hand edit (see shared/textEdits.ts editsFromHandEdit). Each
  * needs `find` lines with some text, a `replace` (empty deletes the lines), and `videos`:
- * a list of video ids, or null for every video where `find` appears.
+ * a list of video ids, or null for every video where `find` appears. `channelId` limits a
+ * rule to one channel's videos.
  */
 async function addTextEdits(env: Env, ws: WorkspaceRow, me: Me, b: { edits?: unknown }) {
   if (!Array.isArray(b.edits) || !b.edits.length || b.edits.length > MAX_EDITS_PER_SAVE) throw new HttpError(400, 'Nothing to save');
-  const edits = b.edits.map((e: { find?: unknown; replace?: unknown; videos?: unknown }) => {
+  const edits = (b.edits as { find?: unknown; replace?: unknown; videos?: unknown; channelId?: unknown }[]).map((e) => {
     const find = str(e.find);
     const replace = str(e.replace);
     if (!find.trim() || find.length > MAX_EDIT_TEXT || replace.length > MAX_EDIT_TEXT) throw new HttpError(400, 'Each change needs some text, up to 5,000 characters');
@@ -275,16 +292,17 @@ async function addTextEdits(env: Env, ws: WorkspaceRow, me: Me, b: { edits?: unk
       if (!ok) throw new HttpError(400, 'Choose at least one video');
       videos = JSON.stringify([...new Set(e.videos as string[])]);
     }
-    return { find, replace, videos };
+    return { find, replace, videos, channelId: e.channelId };
   });
+  const channels = await Promise.all(edits.map((e) => channelScope(env, ws, e.channelId)));
   const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM text_edits WHERE workspace_id = ?').bind(ws.id).first<number>('n');
   if ((count ?? 0) + edits.length > MAX_EDITS_PER_WORKSPACE) throw new HttpError(400, `A workspace can keep up to ${MAX_EDITS_PER_WORKSPACE} saved edits. Remove some first.`);
   const at = now();
   await env.DB.batch(
-    edits.map((e) =>
-      env.DB.prepare('INSERT INTO text_edits (workspace_id, find, replace, videos, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)').bind(
-        ws.id, e.find, e.replace, e.videos, me.email, at,
-      ),
+    edits.map((e, i) =>
+      env.DB.prepare(
+        'INSERT INTO text_edits (workspace_id, find, replace, videos, channel_id, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).bind(ws.id, e.find, e.replace, e.videos, channels[i] || null, me.email, at),
     ),
   );
   return listEdits(env, ws.id);
