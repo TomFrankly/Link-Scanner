@@ -12,7 +12,7 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import { slide } from 'svelte/transition';
   import { SvelteSet } from 'svelte/reactivity';
-  import DescriptionPeek from './DescriptionPeek.svelte';
+  import DescriptionPanel from './DescriptionPanel.svelte';
   import Hint from './Hint.svelte';
   import { toast } from 'svelte-sonner';
   import PlannedFix from './PlannedFix.svelte';
@@ -192,8 +192,9 @@
     </section>
 
     <div class="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">Used in</div>
-    <!-- Each video can open a drawer with a small read-only copy of its description, scrolled to
-         this link (DescriptionPeek). The ⋯ menu opens or closes them all. -->
+    <!-- Each video can open a drawer with its Description tab editor (DescriptionPanel, compact),
+         scrolled to this link: the same edits, fixes and copy buttons as the Videos view. The ⋯
+         menu opens or closes them all. -->
     <ul class="space-y-px px-1.5 pb-2">
       {#each vids as v (v.id)}
         <!-- Problem links in this video besides this one. -->
@@ -247,7 +248,9 @@
             </Hint>
           </div>
           {#if isOpen}
-            <div class="px-2 pb-2" transition:slide={{ duration: 150 }}><DescriptionPeek video={v} url={row.url} /></div>
+            <div class="px-2 pb-2" transition:slide={{ duration: 150 }}>
+              <div class="bg-background h-96 overflow-hidden rounded-lg border"><DescriptionPanel video={v} focus={{ url: row.url, n: 1 }} compact /></div>
+            </div>
           {/if}
         </li>
       {/each}

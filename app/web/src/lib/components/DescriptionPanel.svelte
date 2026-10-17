@@ -16,6 +16,8 @@
   // user copies the result into YouTube Studio. Problem links without a planned fix are flagged in
   // the editor (not in the text), and selecting text opens the quick edit (QuickEdit), which
   // saves an exact-text replacement for this video, its channel, or every video with that text.
+  // `compact` is the same editor without the links list, for the drawers under each video in the
+  // link pane (LinkDetail): another way into this editor, scrolled to that link.
   import { toast } from 'svelte-sonner';
   import X from '@lucide/svelte/icons/x';
   import Copy from '@lucide/svelte/icons/copy';
@@ -47,14 +49,17 @@
 
   let {
     video,
-    allLinks,
+    allLinks = [],
     focus = null,
+    compact = false,
   }: {
     video: VideoRef;
-    /** Every link in the video, listed beside the editor (problems first). */
-    allLinks: Row[];
+    /** Every link in the video, listed beside the editor (problems first). Not shown when compact. */
+    allLinks?: Row[];
     /** A link to scroll to and flash once the text is ready; `n` changes on each request. */
     focus?: { url: string; n: number } | null;
+    /** Just the toolbar and editor, for a drawer; it scrolls only itself to `focus`. */
+    compact?: boolean;
   } = $props();
 
   // ---- the video's links ----
@@ -226,10 +231,10 @@
   let editor = $state<ReturnType<typeof DescriptionEditor>>();
   let editorReady = $state(false);
   /** Scrolls the editor to a link (or the replacement shown in its place) and flashes its line. */
-  function locate(url: string) {
+  function locate(url: string, silent = false) {
     const fix = data.fixes.for(url, video.channelId);
     const texts = mode === 'original' ? [url] : [url, fix?.replacement ?? ''];
-    if (editor?.reveal(texts)) return;
+    if (editor?.reveal(texts, { quiet: compact }) || silent) return;
     toast.info(fix?.action === 'remove' && mode !== 'original' ? 'Its planned fix removes this link, so it isn’t in the text.' : 'This link isn’t in the text shown.');
   }
   // A locate request from the Links tab waits until the editor has the text.
@@ -237,7 +242,7 @@
   $effect(() => {
     if (!focus || focus.n === handled || !editorReady || !text) return;
     handled = focus.n;
-    locate(focus.url);
+    locate(focus.url, compact); // a drawer has its own note when the link isn't in the text
   });
   function saved() {
     found = null;
@@ -314,6 +319,7 @@
 <!-- The video's links beside the editor when there's room for both, above it when not. Each
      scrolls on its own, so locating a link moves only the description. -->
 <div class="flex h-full min-h-0 {side ? 'flex-row' : 'flex-col'}" bind:clientWidth={width}>
+  {#if !compact}
   <aside
     class="min-h-0 shrink-0 overflow-y-auto overscroll-contain {side ? '' : 'max-h-[38%] border-b'}"
     style={side ? `width: ${linksWidth}px` : undefined}
@@ -361,6 +367,7 @@
   </aside>
   {#if side}
     <Resizer bind:size={layout.linksWidth.value} min={LINKS_MIN} max={linksMax} initial={256} label="Resize the links list" />
+  {/if}
   {/if}
 
   <!-- A container, so the buttons' labels follow this column's width, not the window's. -->
@@ -429,6 +436,9 @@
       </div>
     </div>
 
+    {#if compact && focus && mode !== 'original' && data.fixes.for(focus.url, video.channelId)?.action === 'remove'}
+      <p class="text-muted-foreground px-3 pb-1.5 text-xs">Its planned fix removes this link, so it isn’t in the text below.</p>
+    {/if}
     {#if loadError}
       <div class="p-3 text-sm text-[#b42d2d] dark:text-[#f07070]">{loadError}</div>
     {:else if description === null}
