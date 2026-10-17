@@ -83,16 +83,15 @@
   }
 }
 
-/* Scroll bars: a thin thumb and no track, everywhere, even with "always show scroll bars" on.
+/* Scroll bars: full width, but with no track, everywhere, even with "always show scroll bars" on.
    Chrome, Edge and Firefox use the standard properties; Safari only knows the -webkit- ones. */
 * {
-  scrollbar-width: thin;
   scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
 }
 @supports not (scrollbar-color: auto) {
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 14px;
+    height: 14px;
     background: transparent;
   }
   ::-webkit-scrollbar-track,
