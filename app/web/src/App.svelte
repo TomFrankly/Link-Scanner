@@ -41,7 +41,7 @@
     <Sidebar />
     <div class="flex min-w-0 flex-1 flex-col">
       {#if app.route === 'admin' && app.me.isAdmin}
-        <main class="min-h-0 flex-1 overflow-y-auto"><div class="mx-auto max-w-6xl px-4 py-6 sm:px-6"><Admin /></div></main>
+        <main class="min-h-0 flex-1 overflow-y-auto"><div class="mx-auto max-w-6xl px-4 py-8 sm:px-8"><Admin /></div></main>
       {:else if !hasWorkspace}
         <main class="min-h-0 flex-1 overflow-y-auto"><NoAccess /></main>
       {:else}
@@ -50,7 +50,7 @@
           <div class="text-muted-foreground py-24 text-center text-sm">Loading report…</div>
         {:else if app.route === 'exceptions' || app.route === 'channels' || app.route === 'members'}
           <main class="min-h-0 flex-1 overflow-y-auto">
-            <div class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+            <div class="mx-auto max-w-5xl px-4 py-8 sm:px-8">
               {#if app.route === 'exceptions'}<Exceptions />{:else if app.route === 'channels'}<Channels />{:else}<Members />{/if}
             </div>
           </main>

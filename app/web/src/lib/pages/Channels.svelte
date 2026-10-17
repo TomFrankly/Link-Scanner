@@ -6,7 +6,8 @@
   import Trash from '@lucide/svelte/icons/trash-2';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import { Button } from '$lib/components/ui/button';
-  import * as Card from '$lib/components/ui/card';
+  import PageHeader from '$lib/components/page/PageHeader.svelte';
+  import { tile } from '$lib/components/page/Section.svelte';
   import { Input } from '$lib/components/ui/input';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import Hint from '$lib/components/Hint.svelte';
@@ -56,29 +57,33 @@
   }
 </script>
 
-<h1 class="text-2xl font-semibold tracking-tight">Channels</h1>
-<p class="text-muted-foreground mt-1 text-sm">
-  Public videos on these channels are scanned. This workspace can have up to {report.limits.maxChannels} channels.
-</p>
+<PageHeader title="Channels">Public videos on these channels are scanned. This workspace can have up to {report.limits.maxChannels} channels.</PageHeader>
 
-<Card.Root class="mt-6">
-  <Card.Content class="divide-y p-0">
-    {#each report.channels as c (c.id)}
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-3">
-        {#if c.thumbnail}
-          <img src={c.thumbnail} alt="" class="size-10 shrink-0 rounded-full" />
-        {:else}
-          <span class="bg-muted flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-medium">{c.title[0]}</span>
-        {/if}
-        <div class="min-w-0 flex-1 basis-48">
-          <div class="font-medium">{c.title}</div>
-          <div class="text-muted-foreground text-xs">
-            {c.handle ?? c.id} · {c.videoCount.toLocaleString()} videos
-            {c.fetchedAt ? `· fetched ${new Date(c.fetchedAt).toLocaleDateString()}` : '· not scanned yet'}
-          </div>
+<form class="mt-6 flex gap-2" onsubmit={add}>
+  <Input placeholder="@handle or youtube.com channel link" bind:value={input} disabled={busy} />
+  <Button type="submit" disabled={busy || !input.trim() || report.channels.length >= report.limits.maxChannels}>
+    {busy ? 'Adding…' : 'Add channel'}
+  </Button>
+</form>
+
+<!-- Channels as tiles, no dividers, like the report's lists. -->
+<div class="-mx-3 mt-4 space-y-px">
+  {#each report.channels as c (c.id)}
+    <div class="{tile} flex-wrap gap-x-4 gap-y-3 py-3">
+      {#if c.thumbnail}
+        <img src={c.thumbnail} alt="" class="size-10 shrink-0 rounded-full" />
+      {:else}
+        <span class="bg-muted flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-medium">{c.title[0]}</span>
+      {/if}
+      <div class="min-w-0 flex-1 basis-48">
+        <div class="font-medium">{c.title}</div>
+        <div class="text-muted-foreground text-xs">
+          {c.handle ?? c.id} · {c.videoCount.toLocaleString()} videos
+          {c.fetchedAt ? `· fetched ${new Date(c.fetchedAt).toLocaleDateString()}` : '· not scanned yet'}
         </div>
-        <!-- Phones: the buttons drop below the channel name, lined up with it. -->
-        <div class="flex items-center gap-2 max-sm:w-full max-sm:pl-14">
+      </div>
+      <!-- Phones: the buttons drop below the channel name, lined up with it. -->
+      <div class="flex items-center gap-2 max-sm:w-full max-sm:pl-14">
         <Hint text={scanBlocked ?? 'Fetch this channel’s videos and check their links, without rescanning your other channels. Uses one of today’s full scans.'}>
           {#snippet children(props)}
             <!-- A wrapper keeps the tooltip reachable while the button is disabled: a disabled
@@ -91,22 +96,17 @@
             </span>
           {/snippet}
         </Hint>
-        <Button size="sm" variant="outline" href="https://www.youtube.com/channel/{c.id}" target="_blank" rel="noreferrer">
+        <Button size="sm" variant="ghost" href="https://www.youtube.com/channel/{c.id}" target="_blank" rel="noreferrer">
           <span class="hidden sm:inline">View on</span> YouTube <ExternalLink />
         </Button>
-        <Button size="icon-sm" variant="ghost" class="max-sm:ml-auto" aria-label="Remove channel" onclick={() => remove(c.id, c.title)}><Trash /></Button>
-        </div>
+        <Hint text="Remove from this workspace">
+          {#snippet children(tip)}
+            <Button {...tip} size="icon-sm" variant="ghost" class="text-muted-foreground max-sm:ml-auto" aria-label="Remove channel" onclick={() => remove(c.id, c.title)}><Trash /></Button>
+          {/snippet}
+        </Hint>
       </div>
-    {:else}
-      <div class="text-muted-foreground px-5 py-8 text-center text-sm">No channels yet.</div>
-    {/each}
-  </Card.Content>
-  <Card.Footer class="border-t">
-    <form class="flex w-full gap-2" onsubmit={add}>
-      <Input placeholder="@handle or youtube.com channel link" bind:value={input} disabled={busy} />
-      <Button type="submit" disabled={busy || !input.trim() || report.channels.length >= report.limits.maxChannels}>
-        {busy ? 'Adding…' : 'Add channel'}
-      </Button>
-    </form>
-  </Card.Footer>
-</Card.Root>
+    </div>
+  {:else}
+    <p class="text-muted-foreground px-3 py-8 text-center text-sm">No channels yet. Paste a channel’s @handle or link above to add it.</p>
+  {/each}
+</div>

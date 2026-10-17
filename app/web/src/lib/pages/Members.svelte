@@ -6,7 +6,8 @@
   import { toast } from 'svelte-sonner';
   import X from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
-  import * as Card from '$lib/components/ui/card';
+  import PageHeader from '$lib/components/page/PageHeader.svelte';
+  import Section, { tile } from '$lib/components/page/Section.svelte';
   import { Input } from '$lib/components/ui/input';
   import { api } from '$lib/api';
   import { app } from '$lib/store.svelte';
@@ -61,48 +62,40 @@
   }
 </script>
 
-<h1 class="text-2xl font-semibold tracking-tight">Members</h1>
-<p class="text-muted-foreground mt-1 text-sm">
+<PageHeader title="Members">
   {canManage ? 'People you add can sign in with a one-time code sent to their email.' : `Only the owner (${report.workspace.owner}) can add or remove people.`}
-</p>
+</PageHeader>
 
-<div class="mt-6 grid items-start gap-4 lg:grid-cols-3">
-  <Card.Root class="lg:col-span-2">
-    <Card.Content class="divide-y p-0">
-      {#each members as m (m.email)}
-        <div class="flex items-center gap-3 px-5 py-3">
-          <span class="bg-muted flex size-8 items-center justify-center rounded-full text-xs font-medium uppercase">{m.email[0]}</span>
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-sm font-medium">{m.email}</div>
-            <div class="text-muted-foreground text-xs">
-              {m.role === 'owner' ? 'Owner' : `Added by ${m.addedBy ?? 'unknown'} · ${new Date(m.addedAt).toLocaleDateString()}`}
-            </div>
-          </div>
-          {#if canManage && m.role !== 'owner'}
-            <Button size="icon-sm" variant="ghost" aria-label="Remove {m.email}" onclick={() => remove(m.email)}><X /></Button>
-          {/if}
-        </div>
-      {/each}
-    </Card.Content>
-    {#if canManage}
-      <Card.Footer class="border-t">
-        <form class="flex w-full gap-2" onsubmit={invite}>
-          <Input type="email" placeholder="name@example.com" bind:value={email} />
-          <Button type="submit" disabled={!email.trim()}>Add member</Button>
-        </form>
-      </Card.Footer>
-    {/if}
-  </Card.Root>
-
+<Section title="People" description="Everyone here sees the same channels, results, rules and planned fixes.">
   {#if canManage}
-    <Card.Root>
-      <Card.Header><Card.Title>Workspace name</Card.Title></Card.Header>
-      <Card.Content>
-        <form class="flex gap-2" onsubmit={rename}>
-          <Input bind:value={name} />
-          <Button type="submit" variant="outline" disabled={!name.trim() || name === report.workspace.name}>Save</Button>
-        </form>
-      </Card.Content>
-    </Card.Root>
+    <form class="mb-3 flex gap-2" onsubmit={invite}>
+      <Input type="email" placeholder="name@example.com" bind:value={email} />
+      <Button type="submit" disabled={!email.trim()}>Add member</Button>
+    </form>
   {/if}
-</div>
+  <div class="-mx-3 space-y-px">
+    {#each members as m (m.email)}
+      <div class={tile}>
+        <span class="bg-muted flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium uppercase">{m.email[0]}</span>
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-sm font-medium">{m.email}</div>
+          <div class="text-muted-foreground text-xs">
+            {m.role === 'owner' ? 'Owner' : `Added by ${m.addedBy ?? 'unknown'} · ${new Date(m.addedAt).toLocaleDateString()}`}
+          </div>
+        </div>
+        {#if canManage && m.role !== 'owner'}
+          <Button size="icon-sm" variant="ghost" class="text-muted-foreground" aria-label="Remove {m.email}" onclick={() => remove(m.email)}><X /></Button>
+        {/if}
+      </div>
+    {/each}
+  </div>
+</Section>
+
+{#if canManage}
+  <Section title="Workspace name" description="Shown in the workspace menu, for you and your members.">
+    <form class="flex max-w-md gap-2" onsubmit={rename}>
+      <Input bind:value={name} />
+      <Button type="submit" variant="outline" disabled={!name.trim() || name === report.workspace.name}>Save</Button>
+    </form>
+  </Section>
+{/if}
