@@ -35,8 +35,8 @@
   import { Skeleton } from '$lib/components/ui/skeleton';
   import { api } from '$lib/api';
   import Resizer from './Resizer.svelte';
-  import { app, checkVideo, data, fetchedDescriptions, layout, removeTextEdit, openHelp, setFix, videoChecks } from '$lib/store.svelte';
-  import { untrack } from 'svelte';
+  import { app, checkVideo, data, fetchedDescriptions, layout, removeTextEdit, openHelp, saveTextEdits, setFix, videoChecks } from '$lib/store.svelte';
+  import { onDestroy, untrack } from 'svelte';
   import CheckCheck from '@lucide/svelte/icons/check-check';
   import Loader from '@lucide/svelte/icons/loader-circle';
   import { hasStudioTab, openStudio } from '$lib/studio';
@@ -170,10 +170,11 @@
   // Saving needs a base the edit can be traced back to, which the Original tab (YouTube's text,
   // before saved edits) isn't.
   const canSave = $derived(edited && mode !== 'original' && description !== null);
-  async function startSave() {
-    if (!editBase) return;
+  /** The hand edit as saveable changes, measured against the text shown when typing began. */
+  function changesFromEdit() {
     const edits: FoundEdit[] = [];
     const swaps: LinkSwap[] = [];
+    if (!editBase) return { edits, swaps };
     for (const e of editsFromHandEdit(editBase.source, editBase.shown, text)) {
       const split = splitLinkSwaps(e);
       if (split.rest) edits.push(split.rest);
@@ -187,6 +188,11 @@
         } else if (!swaps.some((x) => x.from === s.from)) swaps.push(s);
       }
     }
+    return { edits, swaps };
+  }
+  async function startSave() {
+    if (!editBase) return;
+    const { edits, swaps } = changesFromEdit();
     if (!edits.length && !swaps.length) return toast.info('Nothing to save: only spacing or blank lines changed.');
     // A link used only in this video has nowhere else to go, so it's saved without asking.
     const quick = swaps.filter((s) => onlyHere(s.from));
@@ -198,6 +204,40 @@
       if (quick.length > 1) toast.success(`${quick.length} links changed`);
     }
   }
+
+  // ---- leaving with unsaved edits ----
+  // Closing the panel (another video, a closed drawer, another view) keeps a hand edit instead of
+  // dropping it: it's saved for this video only, the narrowest choice the Save dialog offers. A
+  // link used only here is saved as its planned fix, as Save does. Widening it to other videos is
+  // still the Save button's job; the saved edit is listed under the editor and can be removed.
+  onDestroy(() => {
+    if (!edited || !editBase) return;
+    if (mode === 'original') {
+      toast.warning('Your edits on the Original tab weren’t saved', { description: video.title });
+      return;
+    }
+    const { edits, swaps } = changesFromEdit();
+    if (!edits.length && !swaps.length) return;
+    const quick = swaps.filter((s) => onlyHere(s.from));
+    const lineEdits = edits.map((e) => ({ ...e, videos: [video.id] }));
+    // Links other videos share stay as they are there: here they're a line edit, like "Only this video".
+    for (const s of swaps) if (!onlyHere(s.from) && !lineEdits.some((x) => x.find === s.find)) lineEdits.push({ find: s.find, replace: s.replace, videos: [video.id] });
+    const title = video.title;
+    (async () => {
+      let ok = true;
+      for (const s of quick) ok = (await quickFix(s.from, s.to, false)) && ok;
+      if (lineEdits.length) ok = (await saveTextEdits(lineEdits)) && ok;
+      if (ok) toast.success('Saved your edits to this video', { description: `${title}. Use Save before closing to apply them to other videos too.` });
+    })();
+  });
+
+  // Closing or reloading the browser tab can't wait for a save, so the browser asks first.
+  $effect(() => {
+    if (!edited) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    addEventListener('beforeunload', warn);
+    return () => removeEventListener('beforeunload', warn);
+  });
 
   // ---- changing a link used only in this video ----
   const onlyHere = (url: string) => (data.rows.find((r) => r.url === url)?.videos.length ?? 0) <= 1;
