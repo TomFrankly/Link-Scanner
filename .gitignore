@@ -8,3 +8,5 @@
 .DS_Store
 # Local machine config (dev server launch settings)
 .claude/
+# Design galleries: local only
+/design/
