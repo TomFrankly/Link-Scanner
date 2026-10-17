@@ -11,6 +11,7 @@
   import * as Tooltip from '$lib/components/ui/tooltip';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import HelpDialog from '$lib/components/help/HelpDialog.svelte';
+  import ArchivePreview from '$lib/components/ArchivePreview.svelte';
   import ScanBanner from '$lib/components/ScanBanner.svelte';
   import NoAccess from '$lib/pages/NoAccess.svelte';
   import Report from '$lib/pages/Report.svelte';
@@ -61,5 +62,6 @@
     </div>
   </div>
   <HelpDialog />
+  <ArchivePreview />
 {/if}
 </Tooltip.Provider>

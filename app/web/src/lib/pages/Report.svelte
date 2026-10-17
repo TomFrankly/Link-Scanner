@@ -15,6 +15,7 @@
   import Search from '@lucide/svelte/icons/search';
   import Download from '@lucide/svelte/icons/download';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
+  import Loader from '@lucide/svelte/icons/loader-circle';
   import X from '@lucide/svelte/icons/x';
   import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
   import CircleCheck from '@lucide/svelte/icons/circle-check';
@@ -37,7 +38,7 @@
   import { Input } from '$lib/components/ui/input';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import { FILTERS, isFlagged } from '$lib/categories';
-  import { app, data, go, layout, loadDescriptions, startScan, ui } from '$lib/store.svelte';
+  import { app, archiveLookups, data, go, layout, loadDescriptions, startScan, ui } from '$lib/store.svelte';
   import { groupVideos, movedTo, shortDate } from '$lib/videoGroups';
   import type { Row } from '$lib/types';
 
@@ -526,7 +527,9 @@
                   </span>
                   <span class="mt-1 line-clamp-2 font-mono text-xs font-medium break-all">{r.url}</span>
                   {#if final}<span class="text-muted-foreground block truncate font-mono text-xs">→ {final}</span>{/if}
-                  {#if data.fixes.has(r.url)}<span class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs"><PencilLine class="size-3" /> Fix planned</span>{/if}
+                  {#if archiveLookups.has(r.url)}
+                    <span class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs"><Loader class="size-3 motion-safe:animate-spin" /> Looking for an archived copy…</span>
+                  {:else if data.fixes.has(r.url)}<span class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs"><PencilLine class="size-3" /> Fix planned</span>{/if}
                 </button>
               {:else}
                 <div class="text-muted-foreground px-4 py-14 text-center text-sm">

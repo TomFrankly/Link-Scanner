@@ -10,8 +10,7 @@
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { baseDomain, hostOf } from '$shared/core';
   import { FIXABLE, REDIRECTS } from '$shared/fixes';
-  import { toast } from 'svelte-sonner';
-  import { addRule, data, findArchivedCopy, setFix, ui } from '$lib/store.svelte';
+    import { addRule, archiveLookups, data, planArchivedCopy, setFix, ui } from '$lib/store.svelte';
   import type { Row } from '$lib/types';
 
   let { row }: { row: Row } = $props();
@@ -25,24 +24,12 @@
 
   // A broken page often lives on in the Wayback Machine (handy for credit links, like a Creative
   // Commons photo's page). Looks up the copy saved nearest to when the first video using the link
-  // came out, when the link most likely worked, and plans it as the replacement.
+  // came out, when the link most likely worked, and plans it as the replacement. The lookup runs
+  // in the store (planArchivedCopy), so the menu can close and you can move on to other links.
   const firstPublished = $derived(
     row.videos.map((v) => v.publishedAt).filter((d): d is string => !!d).sort()[0] ?? null,
   );
-  async function useArchivedCopy() {
-    const id = toast.loading('Looking for a saved copy in the Wayback Machine. This can take up to half a minute…');
-    const snap = await findArchivedCopy(row.url, firstPublished);
-    toast.dismiss(id);
-    if (snap === undefined) return;
-    if (!snap) return void toast.info('The Wayback Machine has no saved copy of this page.');
-    if (!(await setFix(row.url, 'replace', snap.url, { quiet: true }))) return;
-    const t = snap.timestamp;
-    const when = new Date(Date.UTC(+t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8))).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
-    toast.success(`Planned: replace with the Wayback Machine copy from ${when}.`, {
-      action: { label: 'Open it', onClick: () => window.open(snap.url, '_blank', 'noopener,noreferrer') },
-      duration: 10_000,
-    });
-  }
+  const looking = $derived(archiveLookups.has(row.url));
 </script>
 
 <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">
@@ -57,10 +44,10 @@
   </DropdownMenu.Item>
 {/if}
 {#if FIXABLE.includes(row.cls.category) && !row.url.startsWith('https://web.archive.org/')}
-  <DropdownMenu.Item onSelect={useArchivedCopy}>
+  <DropdownMenu.Item disabled={looking} onSelect={() => planArchivedCopy(row.url, firstPublished)}>
     <div class="min-w-0">
-      <div>Replace with an archived copy</div>
-      <div class="text-muted-foreground text-xs">The Wayback Machine’s copy from around {firstPublished ? new Date(firstPublished).getFullYear() : 'the latest save'}</div>
+      <div>{looking ? 'Looking for an archived copy…' : 'Replace with an archived copy'}</div>
+      <div class="text-muted-foreground text-xs">The Wayback Machine’s copy from around {firstPublished ? new Date(firstPublished).getFullYear() : 'the latest save'}. Takes about 20 seconds; you can keep working.</div>
     </div>
   </DropdownMenu.Item>
 {/if}

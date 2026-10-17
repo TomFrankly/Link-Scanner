@@ -8,6 +8,7 @@
 // Rules are applied in the browser, so editing an exception list
 // reclassifies every link instantly without asking the server to recheck anything.
 import { toast } from 'svelte-sonner';
+import { SvelteSet } from 'svelte/reactivity';
 import { classify, cleanDomain, hostOf, type LinkResult, type Rules } from '$shared/core';
 import { effectiveRules, type RuleRow, type RuleType } from '$shared/rules';
 import type { FoundEdit, TextEdit } from '$shared/textEdits';
@@ -47,6 +48,8 @@ export const ui = $state({
   help: false,
   /** The Help page to show; null shows the page list (the start screen on phones). */
   helpPage: null as HelpPage | null,
+  /** The Wayback Machine link shown in the preview lightbox (ArchivePreview.svelte), or null. */
+  archivePreview: null as string | null,
 });
 
 /** The pages of the Help dialog (help/HelpDialog.svelte). */
@@ -268,6 +271,43 @@ export async function findArchivedCopy(url: string, at: string | null) {
     fail(e);
     return undefined;
   }
+}
+
+/** Links whose Wayback Machine lookup is running, for the spinners in the Links list and the link pane. */
+export const archiveLookups = new SvelteSet<string>();
+
+/**
+ * Looks up the archived copy of `url` nearest to `at` and plans it as the replacement. The lookup
+ * takes 10–20 seconds, so it runs here rather than in a menu, and the list shows it's running: you
+ * can carry on with other links. The toast at the end names the link and opens a preview.
+ */
+export async function planArchivedCopy(url: string, at: string | null) {
+  if (archiveLookups.has(url)) return;
+  archiveLookups.add(url);
+  try {
+    const snap = await findArchivedCopy(url, at);
+    if (snap === undefined) return;
+    const short = url.replace(/^https?:\/\/(www\.)?/, '');
+    if (!snap) return void toast.info(`The Wayback Machine has no saved copy of ${short}.`);
+    if (!(await setFix(url, 'replace', snap.url, { quiet: true }))) return;
+    toast.success(`Planned the Wayback Machine copy from ${waybackDate(snap.timestamp)}`, {
+      description: short,
+      action: { label: 'Preview', onClick: () => (ui.archivePreview = snap.url) },
+      duration: 10_000,
+    });
+  } finally {
+    archiveLookups.delete(url);
+  }
+}
+
+/** A Wayback Machine link's parts: when it was saved (YYYYMMDDhhmmss) and the page it saved. */
+export function waybackParts(url: string) {
+  const m = /^https?:\/\/web\.archive\.org\/web\/(\d{8,14})[a-z_]*\/(.+)$/.exec(url);
+  return m ? { timestamp: m[1], original: m[2] } : null;
+}
+/** "Nov 27, 2022" from a Wayback timestamp. */
+export function waybackDate(t: string) {
+  return new Date(Date.UTC(+t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8))).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 /**

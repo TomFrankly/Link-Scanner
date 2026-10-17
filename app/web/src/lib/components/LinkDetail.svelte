@@ -16,13 +16,15 @@
   import Hint from './Hint.svelte';
   import { toast } from 'svelte-sonner';
   import PlannedFix from './PlannedFix.svelte';
+  import ArchiveThumb from './ArchiveThumb.svelte';
+  import Loader from '@lucide/svelte/icons/loader-circle';
   import PlanFixButton from './PlanFixButton.svelte';
   import FixMenuItems from './FixMenuItems.svelte';
   import StatusBadge from './StatusBadge.svelte';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { studioLink, studioUrl } from '$lib/studio';
-  import { addRule, app, data, removeRule, startScan, ui } from '$lib/store.svelte';
+  import { addRule, app, archiveLookups, data, removeRule, startScan, ui, waybackParts } from '$lib/store.svelte';
   import { FIXABLE } from '$shared/fixes';
   import { baseDomain, hostOf } from '$shared/core';
   import type { Row } from '$lib/types';
@@ -97,6 +99,8 @@
   });
   const toggle = (id: string) => (expanded.has(id) ? expanded.delete(id) : expanded.add(id));
   const allOpen = $derived(vids.length > 0 && vids.every((v) => expanded.has(v.id)));
+  // A planned Wayback Machine replacement gets a small preview of the archived page.
+  const archived = $derived(data.fixes.all(row.url).find((f) => f.action === 'replace' && f.replacement && waybackParts(f.replacement))?.replacement ?? null);
   const MARK_HINT = 'You opened it and it works. It counts as OK in this workspace, and is flagged again if the site starts answering with an error, like 404.';
 </script>
 
@@ -113,9 +117,16 @@
       </Hint>
     {/if}
     <StatusBadge category={row.cls.category} />
+    {#if archiveLookups.has(row.url)}
+      <!-- A Wayback Machine lookup is running (planArchivedCopy); it carries on if you move to another link. -->
+      <span class="text-muted-foreground flex min-w-0 flex-1 items-center gap-1.5 text-xs" role="status">
+        <Loader class="size-3.5 shrink-0 motion-safe:animate-spin" /><span class="truncate">Looking for an archived copy…</span>
+      </span>
+    {:else}
     <span class="text-muted-foreground min-w-0 flex-1 truncate text-xs">
       in {row.videos.length} video{row.videos.length === 1 ? '' : 's'}{#if multiChannel}{' '}across {channelCount} channel{channelCount === 1 ? '' : 's'}{/if}
     </span>
+    {/if}
     {#if row.cls.category === 'domain-changed' && finalBase}
       <Hint text="Mark {startBase} → {finalBase} as an expected redirect. Every link that makes this move counts as OK in this workspace.">
         {#snippet children(props)}
@@ -177,6 +188,7 @@
         </div>
       {/if}
       <PlannedFix url={row.url} />
+      {#if archived}<ArchiveThumb url={archived} />{/if}
     </section>
 
     <div class="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">Used in</div>
