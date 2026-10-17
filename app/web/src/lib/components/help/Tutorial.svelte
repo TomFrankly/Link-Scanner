@@ -53,7 +53,8 @@
       video: 'accept',
       paragraphs: [
         'Some redirects are fine: a company renamed itself, or the link is one of your own short links. Click Accept on a “Domain changed” link and every link making that same move counts as OK.',
-        'The Exceptions page holds these rules: accepted redirects, redirector domains (short-link services you control), and links to ignore entirely.',
+        'A link that says “Could not verify” but works when you open it can be marked as working, so it counts as OK too.',
+        'The Exceptions page holds these rules: accepted redirects, redirector domains (short-link services you control), links you marked as working, and links to ignore entirely.',
       ],
       page: { route: 'exceptions', label: 'Open Exceptions' },
     },

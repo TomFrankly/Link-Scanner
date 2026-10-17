@@ -9,6 +9,7 @@
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import FileText from '@lucide/svelte/icons/file-text';
   import Hint from './Hint.svelte';
+  import { toast } from 'svelte-sonner';
   import PlannedFix from './PlannedFix.svelte';
   import PlanFixButton from './PlanFixButton.svelte';
   import FixMenuItems from './FixMenuItems.svelte';
@@ -72,6 +73,18 @@
   const ignoreRules = $derived(
     report.rules.filter((x) => x.type === 'ignored' && (x.value === row.url || (!x.value.includes('/') && (row.host === x.value || row.host.endsWith(`.${x.value}`))))),
   );
+  // "Mark as working" is for what the checker couldn't confirm: Could not verify, or Broken
+  // because the site couldn't be reached (no HTTP answer). A 404 or a parked page is definite.
+  const canMarkWorking = $derived(row.cls.category === 'unverifiable' || (row.cls.category === 'broken' && row.result?.outcome === 'error'));
+  const workingRule = $derived(report.rules.find((x) => x.type === 'working' && x.value === row.url));
+  /** Marks it, then confirms with Undo: the link leaves the "Needs attention" list at once. */
+  async function markWorking() {
+    const url = row.url;
+    if (!(await addRule('working', url))) return;
+    const id = app.report?.rules.find((x) => x.type === 'working' && x.value === url)?.id;
+    toast.success('Marked as working. It counts as OK in this workspace.', { action: id ? { label: 'Undo', onClick: () => removeRule(id) } : undefined });
+  }
+  const MARK_HINT = 'You opened it and it works. It counts as OK in this workspace, and is flagged again if the site starts answering with an error, like 404.';
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -94,6 +107,12 @@
       <Hint text="Mark {startBase} → {finalBase} as an expected redirect. Every link that makes this move counts as OK in this workspace.">
         {#snippet children(props)}
           <Button {...props} size="sm" variant="outline" onclick={() => addRule('accepted', startBase, finalBase)}>Accept</Button>
+        {/snippet}
+      </Hint>
+    {:else if canMarkWorking}
+      <Hint text={MARK_HINT}>
+        {#snippet children(props)}
+          <Button {...props} size="sm" variant="outline" onclick={markWorking}>Mark as working</Button>
         {/snippet}
       </Hint>
     {:else if row.cls.category === 'ignored'}
@@ -132,8 +151,14 @@
           → {final}{#if (row.result?.chain.length ?? 0) > 2}<span class="font-sans"> · {row.result!.chain.length - 1} hops</span>{/if}
         </div>
       {/if}
-      {#if row.cls.detail}<div class="text-muted-foreground text-xs">{row.cls.detail}</div>{/if}
+      {#if row.cls.detail && !row.cls.working}<div class="text-muted-foreground text-xs">{row.cls.detail}</div>{/if}
       {#if row.cls.accepted}<div class="text-muted-foreground text-xs">Accepted redirect</div>{/if}
+      {#if row.cls.working && workingRule}
+        <div class="text-muted-foreground flex flex-wrap items-center gap-x-2 text-xs">
+          <span>Marked as working by {workingRule.addedBy.split('@')[0]}. The checker got: {row.cls.detail ?? 'no answer'}.</span>
+          <button class="text-foreground underline underline-offset-2" onclick={() => removeRule(workingRule.id)}>Unmark</button>
+        </div>
+      {/if}
       <PlannedFix url={row.url} />
     </section>
 

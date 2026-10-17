@@ -110,6 +110,14 @@
   </form>
 </Section>
 
+<Section title="Marked as working">
+  {#snippet description()}
+    Links you opened and found working, though the checker couldn’t confirm them (a timeout or bot protection). Mark one from its Could not verify or
+    Broken page. A definite error, like a 404, still shows.
+  {/snippet}
+  {@render list(own('working'), (r) => r.value)}
+</Section>
+
 <Section title="Saved text edits">
   {#snippet description()}
     Text changes saved from a video’s Description tab: select text and click Replace, or edit lines by hand and click the save icon. They run before planned

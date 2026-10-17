@@ -30,6 +30,8 @@ export interface Rules {
   accepted: [string, string][];
   redirectors: string[];
   ignored: string[];
+  /** Exact links someone checked by hand and marked as working (see classify). */
+  working?: string[];
 }
 
 export type Category =
@@ -47,6 +49,8 @@ export interface Classified {
   category: Category;
   detail?: string;
   accepted?: boolean;
+  /** OK because someone marked the link as working, though the checker couldn't confirm it. */
+  working?: boolean;
 }
 
 // ---------- domains ----------
@@ -123,7 +127,20 @@ const BOT_WALL_STATUSES = [401, 403, 405, 429, 999];
 export function classify(r: LinkResult | null, url: string, rules: Rules): Classified {
   if (isIgnored(url, rules)) return { category: 'ignored' };
   if (!r) return { category: 'pending' };
+  const c = classifyResult(r, url, rules);
+  // "Mark as working" covers what the checker couldn't confirm: a site that turned it away,
+  // timed out or couldn't be reached. A definite answer, like a 404 or a parked page, still
+  // shows, so a link that really breaks later is flagged again.
+  const unsure = c.category === 'unverifiable' || (c.category === 'broken' && r.outcome === 'error');
+  if (unsure && rules.working?.includes(url)) return { category: 'ok', working: true, detail: c.detail };
+  return c;
+}
 
+/** A timeout means the site didn't answer the checker in time, not that the page is gone. */
+const TIMEOUT_NOTE = 'timeout';
+
+function classifyResult(r: LinkResult, url: string, rules: Rules): Classified {
+  if (r.outcome === 'error' && r.note === TIMEOUT_NOTE) return { category: 'unverifiable', detail: 'timed out: the site didn’t answer within 15 seconds' };
   if (r.outcome === 'error') return { category: 'broken', detail: r.note ?? 'request failed' };
   if (r.outcome === 'redirect-loop') return { category: 'broken', detail: 'redirect loop' };
   if (r.outcome === 'too-many-redirects') return { category: 'broken', detail: 'too many redirects' };

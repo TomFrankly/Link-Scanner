@@ -134,7 +134,7 @@ function buildBase(report: Report | null): Omit<Row, 'cls'>[] {
 // - `fixes` when a planned fix changes.
 class Derived {
   base = $derived(buildBase(app.report));
-  rules: Rules = $derived(app.report ? effectiveRules(app.report.rules, app.report.defaults) : { accepted: [], redirectors: [], ignored: [] });
+  rules: Rules = $derived(app.report ? effectiveRules(app.report.rules, app.report.defaults) : { accepted: [], redirectors: [], ignored: [], working: [] });
   rows: Row[] = $derived(this.base.map((r) => ({ ...r, cls: classify(r.result, r.url, this.rules) })));
   fixes = $derived(new FixBook(app.report?.fixes ?? []));
   /** Each video's channel id, for channel-scoped fixes and edits. */

@@ -259,8 +259,8 @@
     </div>
   {:else}
     <p class="text-muted-foreground">
-      Some websites block automated visitors, ask for a login, or limit how often they can be visited. When that happens, Link Checker can’t tell if the
-      link works, so it says so instead of guessing. These links are usually fine.
+      Some websites block automated visitors, ask for a login, limit how often they can be visited, or never answer the checker at all. When that happens,
+      Link Checker can’t tell if the link works, so it says so instead of guessing. These links are usually fine.
     </p>
 
     {#snippet bots()}
@@ -277,18 +277,32 @@
         Amazon and LinkedIn. If a site still says “too many visits”, the link is marked Could not verify rather than retried over and over.
       </p>
     {/snippet}
+    {#snippet timeouts()}
+      <!-- worker/fetcher.ts: TIMEOUT_MS; shared/core.ts: classifyResult -->
+      <p>
+        The checker gives each site 15 seconds to answer. Some sites quietly ignore visitors that come from data centers, like Cloudflare’s, so the request
+        just hangs. A page that’s really gone usually says so quickly, so a timeout is marked Could not verify, not Broken.
+      </p>
+      <p>A site that can’t be reached at all (its address doesn’t exist, or it refuses the connection) is still marked Broken.</p>
+    {/snippet}
     {#snippet todo()}
       <p>
-        Open the link in your browser. If it works, you can leave it: it doesn’t count toward the links that need attention. If you’d rather it not show up at
-        all, add the site to <span class="text-foreground">Ignored links</span> on the Exceptions page.
+        Open the link in your browser. If it works, click <span class="text-foreground">Mark as working</span> on its page. It then counts as OK in this
+        workspace, and it’s listed on the Exceptions page, where you can unmark it. If the site later answers with a definite error, like 404, it’s flagged
+        again.
+      </p>
+      <p>
+        You can do the same for a link marked Broken because its site couldn’t be reached. If you’d rather a link not show up at all, add it to
+        <span class="text-foreground">Ignored</span> on the Exceptions page.
       </p>
       <p>A later Recheck flagged links may get through, since some sites only block for a while.</p>
     {/snippet}
     <div class="space-y-6">
       {@render topic(Bot, 'Bot protection', 'Many big sites check whether a visitor is a person, and turn away anything that looks automated.', bots, 'Which answers mean “blocked”')}
       {@render topic(KeyRound, 'Login walls', 'Some links need you to be signed in, like a members-only page. The app never signs in anywhere, so it can only see the login page.')}
-      {@render topic(Timer, 'Visit limits', 'Some sites allow only a few visits per minute from one place.', waits, 'How the app spaces out visits')}
-      {@render topic(MousePointerClick, 'What to do about them', 'Open one to check. Usually it works fine.', todo, 'Your options')}
+      {@render topic(Timer, 'Timeouts', 'Some sites never answer the checker, though they work fine in a browser.', timeouts, 'Why a timeout isn’t Broken')}
+      {@render topic(Gauge, 'Visit limits', 'Some sites allow only a few visits per minute from one place.', waits, 'How the app spaces out visits')}
+      {@render topic(MousePointerClick, 'What to do about them', 'Open one to check. If it works, mark it as working.', todo, 'Your options')}
     </div>
   {/if}
 

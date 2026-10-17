@@ -370,6 +370,10 @@ async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; 
     if (/^https?:\/\/[^/]+\/./.test(raw)) value = raw; // an exact URL
     else value = cleanDomain(raw);
     if (!value) throw new HttpError(400, 'Enter a domain or URL');
+  } else if (r.type === 'working') {
+    // One exact link, as it appears in descriptions (it's matched exactly, like the report's URLs).
+    value = (r.value ?? '').trim();
+    if (!/^https?:\/\/\S+$/.test(value) || value.length > MAX_REPLACEMENT_URL) throw new HttpError(400, 'Enter a full link');
   } else if (r.type === 'disabled') {
     value = r.value;
     value2 = r.value2 ?? '';

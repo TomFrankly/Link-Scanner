@@ -26,7 +26,7 @@ export const CATEGORY: Record<Category, { label: string; cls: string; help: stri
   unverifiable: {
     label: 'Could not verify',
     cls: gray,
-    help: "The site blocked the check (bot protection, a login wall or rate limiting). It may be fine; open it to see.",
+    help: "The site blocked the check (bot protection, a login wall or rate limiting) or didn't answer in time. It may be fine: open it, and if it works, mark it as working.",
   },
   ok: { label: 'OK', cls: green, help: 'The link works and lands where expected.' },
   ignored: { label: 'Ignored', cls: gray, help: 'Hidden by one of your ignore rules on the Exceptions page.' },

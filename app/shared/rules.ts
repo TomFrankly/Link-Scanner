@@ -18,7 +18,8 @@ export const DEFAULT_REDIRECTORS = [
 /** Links to these are never checked (YouTube itself is covered by the API, not fetched). */
 export const SKIP_DOMAINS = ['youtube.com', 'youtu.be'];
 
-export type RuleType = 'accepted' | 'redirector' | 'ignored' | 'disabled';
+/** `working`: one exact link someone checked by hand and marked as working (see classify in core.ts). */
+export type RuleType = 'accepted' | 'redirector' | 'ignored' | 'disabled' | 'working';
 
 /** A workspace rule as stored. `disabled` turns off a default: value is its kind, value2 its key. */
 export interface RuleRow {
@@ -82,5 +83,6 @@ export function effectiveRules(own: RuleRow[], defaults: Defaults = appDefaults(
       ...own.filter((r) => r.type === 'redirector').map((r) => r.value),
     ],
     ignored: own.filter((r) => r.type === 'ignored').map((r) => r.value),
+    working: own.filter((r) => r.type === 'working').map((r) => r.value),
   };
 }
