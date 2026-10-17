@@ -256,6 +256,21 @@ export async function removeRule(id: number) {
 }
 
 /**
+ * The Wayback Machine copy of a link nearest to `at` (a date, e.g. when the first video using it
+ * was published), or null if the archive has none. Errors show a toast and return undefined.
+ */
+export async function findArchivedCopy(url: string, at: string | null) {
+  try {
+    const stamp = at ? at.slice(0, 10).replaceAll('-', '') : undefined;
+    const res = await api<{ snapshot: { url: string; timestamp: string } | null }>(`/w/${app.wsId}/wayback`, { method: 'POST', body: { url, at: stamp } });
+    return res.snapshot;
+  } catch (e) {
+    fail(e);
+    return undefined;
+  }
+}
+
+/**
  * Every video's saved description (full scans save them), keyed by video id. Costs no YouTube
  * quota. Kept for a few minutes per workspace, since the quick edit asks on every selection and
  * descriptions only change when a scan runs.

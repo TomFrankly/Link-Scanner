@@ -4,12 +4,14 @@
   // fix belongs to the link, so it applies in every video that uses it. Problem links also get
   // ways to mark them as fine.
   // Used in the Report page's per-link "…" menu and in PlanFixButton (Videos view).
+  // "Replace with an archived copy" asks the Wayback Machine through the worker (api.ts archivedCopy).
   // Fixes go through setFix and "mark it as fine" choices through addRule (store.svelte.ts);
   // both update the store, so every list showing this link updates too.
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { baseDomain, hostOf } from '$shared/core';
   import { FIXABLE, REDIRECTS } from '$shared/fixes';
-  import { addRule, data, setFix, ui } from '$lib/store.svelte';
+  import { toast } from 'svelte-sonner';
+  import { addRule, data, findArchivedCopy, setFix, ui } from '$lib/store.svelte';
   import type { Row } from '$lib/types';
 
   let { row }: { row: Row } = $props();
@@ -20,6 +22,27 @@
   const redirectTarget = $derived(REDIRECTS.includes(row.cls.category) && finalUrl && finalUrl !== row.url ? finalUrl : '');
   const startBase = $derived(baseDomain(row.host));
   const finalBase = $derived(finalUrl ? baseDomain(hostOf(finalUrl)) : '');
+
+  // A broken page often lives on in the Wayback Machine (handy for credit links, like a Creative
+  // Commons photo's page). Looks up the copy saved nearest to when the first video using the link
+  // came out, when the link most likely worked, and plans it as the replacement.
+  const firstPublished = $derived(
+    row.videos.map((v) => v.publishedAt).filter((d): d is string => !!d).sort()[0] ?? null,
+  );
+  async function useArchivedCopy() {
+    const id = toast.loading('Looking for a saved copy in the Wayback Machine. This can take up to half a minute…');
+    const snap = await findArchivedCopy(row.url, firstPublished);
+    toast.dismiss(id);
+    if (snap === undefined) return;
+    if (!snap) return void toast.info('The Wayback Machine has no saved copy of this page.');
+    if (!(await setFix(row.url, 'replace', snap.url, { quiet: true }))) return;
+    const t = snap.timestamp;
+    const when = new Date(Date.UTC(+t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8))).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+    toast.success(`Planned: replace with the Wayback Machine copy from ${when}.`, {
+      action: { label: 'Open it', onClick: () => window.open(snap.url, '_blank', 'noopener,noreferrer') },
+      duration: 10_000,
+    });
+  }
 </script>
 
 <DropdownMenu.Label class="text-muted-foreground text-xs font-normal">
@@ -30,6 +53,14 @@
     <div class="min-w-0">
       <div>Replace with where it redirects now</div>
       <div class="text-muted-foreground truncate font-mono text-xs">{redirectTarget}</div>
+    </div>
+  </DropdownMenu.Item>
+{/if}
+{#if FIXABLE.includes(row.cls.category) && !row.url.startsWith('https://web.archive.org/')}
+  <DropdownMenu.Item onSelect={useArchivedCopy}>
+    <div class="min-w-0">
+      <div>Replace with an archived copy</div>
+      <div class="text-muted-foreground text-xs">The Wayback Machine’s copy from around {firstPublished ? new Date(firstPublished).getFullYear() : 'the latest save'}</div>
     </div>
   </DropdownMenu.Item>
 {/if}

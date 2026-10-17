@@ -49,6 +49,7 @@
   let {
     value = $bindable(''),
     ready = $bindable(false),
+    readonly = false,
     needles,
     tint,
     flagged = [],
@@ -58,11 +59,13 @@
   }: {
     value: string;
     ready?: boolean;
+    /** A preview (the link pane's description drawer): no typing, no quick edit, links open on click. */
+    readonly?: boolean;
     needles: string[];
     tint: string;
     flagged?: Flag[];
-    oninput: () => void;
-    onlink: (link: LinkClick) => void;
+    oninput?: () => void;
+    onlink?: (link: LinkClick) => void;
     onselect?: (sel: TextSelection | null) => void;
   } = $props();
 
@@ -77,16 +80,23 @@
   let flashAt: ((pos: number) => void) | undefined;
 
   /** Scrolls to the first of `texts` found in the editor and flashes its line. Returns whether one was found. */
-  export function reveal(texts: string[]): boolean {
+  export function reveal(texts: string[], { quiet = false } = {}): boolean {
     if (!view || !flashAt) return false;
     const doc = view.state.doc.toString();
     for (const t of texts) {
       const at = t ? doc.indexOf(t) : -1;
       if (at === -1) continue;
-      flashAt(at);
+      if (quiet) scrollQuietly(at);
+      else flashAt(at);
       return true;
     }
     return false;
+  }
+  /** Centers a position in the editor's own scroller only, so the page around it doesn't move. */
+  function scrollQuietly(pos: number) {
+    if (!view) return;
+    const block = view.lineBlockAt(pos);
+    view.scrollDOM.scrollTop = Math.max(0, block.top + block.height / 2 - view.scrollDOM.clientHeight / 2);
   }
 
   onMount(() => {
@@ -139,7 +149,7 @@
           tag.className = `cm-flagtag cm-flagtag-${this.flag.tone}`;
           tag.dataset.at = String(this.at);
           tag.textContent = this.flag.reason;
-          tag.title = 'No fix planned. Click to fix it.';
+          tag.title = readonly ? 'No fix planned' : 'No fix planned. Click to fix it.';
           return tag;
         }
         ignoreEvent() {
@@ -154,9 +164,9 @@
           [
             ...urlsIn(doc).flatMap((u) => {
               const f = flags.get(u.url);
-              if (!f) return [Decoration.mark({ class: 'cm-link', attributes: { title: 'Click to change · ⌘/Ctrl-click to open' } }).range(u.start, u.end)];
+              if (!f) return [Decoration.mark({ class: 'cm-link', attributes: { title: readonly ? 'Click to open' : 'Click to change · ⌘/Ctrl-click to open' } }).range(u.start, u.end)];
               return [
-                Decoration.mark({ class: `cm-link cm-link-${f.tone}`, attributes: { title: `No fix planned: ${f.reason}. Click to fix it.` } }).range(u.start, u.end),
+                Decoration.mark({ class: `cm-link cm-link-${f.tone}`, attributes: { title: readonly ? `No fix planned: ${f.reason}` : `No fix planned: ${f.reason}. Click to fix it.` } }).range(u.start, u.end),
                 Decoration.widget({ widget: new FlagTag(f, u.start), side: 1 }).range(u.end),
               ];
             }),
@@ -183,8 +193,9 @@
           extensions: [
             history(),
             keymap.of([...defaultKeymap, ...historyKeymap]),
+            EditorState.readOnly.of(readonly),
             EditorView.lineWrapping,
-            EditorView.contentAttributes.of({ 'aria-label': 'Fixed description', spellcheck: 'false' }),
+            EditorView.contentAttributes.of({ 'aria-label': readonly ? 'Description preview' : 'Fixed description', spellcheck: 'false' }),
             marks,
             decorations,
             flashed,
@@ -192,7 +203,7 @@
               if (u.selectionSet || u.docChanged) reportSelection(u.view);
               if (!u.docChanged || u.transactions.some((t) => t.annotation(externalTag))) return;
               value = u.state.doc.toString();
-              oninput();
+              oninput?.();
             }),
             EditorView.domEventHandlers({
               mousedown() {
@@ -206,12 +217,12 @@
                 if (!tag && !target.closest('.cm-link')) return false;
                 const pos = tag ? Number(tag.dataset.at) : v.posAtCoords({ x: e.clientX, y: e.clientY });
                 const link = pos === null ? undefined : urlsIn(v.state.doc.toString()).find((u) => pos >= u.start && pos <= u.end);
-                if (link && (e.metaKey || e.ctrlKey)) {
+                if (link && (e.metaKey || e.ctrlKey || readonly)) {
                   window.open(link.url, '_blank', 'noopener,noreferrer');
                   return true;
                 }
                 const at = link && v.coordsAtPos(link.start);
-                if (link && at) onlink({ url: link.url, from: link.start, to: link.end, left: at.left, top: at.top, bottom: at.bottom });
+                if (link && at) onlink?.({ url: link.url, from: link.start, to: link.end, left: at.left, top: at.top, bottom: at.bottom });
                 return false; // the caret still moves there, so the link can be typed in too
               },
             }),

@@ -396,6 +396,37 @@ async function addRule(env: Env, ws: WorkspaceRow, me: Me, r: { type: RuleType; 
     .first();
 }
 
+/**
+ * The Wayback Machine (web.archive.org) copy of one of this workspace's links that's closest to
+ * `at` (YYYYMMDD, e.g. when the first video using it was published), or null if it has none.
+ * Uses the Internet Archive's CDX index, one saved copy per month that answered 200 (a page,
+ * not an error or a redirect), and picks the nearest. The index often takes 10–20 seconds (its
+ * quicker "available" API misses many saved copies, so it isn't used). Only links in this workspace's report,
+ * so the route can't be used to query the archive for anything else. One subrequest.
+ */
+async function archivedCopy(env: Env, ws: WorkspaceRow, b: { url?: unknown; at?: unknown }) {
+  const url = str(b.url);
+  const at = /^\d{8}$/.test(str(b.at)) ? str(b.at) : '';
+  const known = await env.DB.prepare('SELECT 1 FROM links WHERE workspace_id = ? AND url = ?').bind(ws.id, url).first();
+  if (!known) throw new HttpError(404, 'Link not found in this workspace');
+  const q = new URLSearchParams({ url, output: 'json', fl: 'timestamp,original', filter: 'statuscode:200', collapse: 'timestamp:6', limit: '1000' });
+  let rows: string[][];
+  try {
+    const res = await fetch(`https://web.archive.org/cdx/search/cdx?${q}`, { signal: AbortSignal.timeout(45_000), headers: { 'user-agent': 'Link Checker (link archive lookup)' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    rows = text.trim() ? (JSON.parse(text) as string[][]).slice(1) : []; // the first row names the fields
+  } catch {
+    throw new HttpError(502, 'The Wayback Machine didn’t answer. Try again in a moment.');
+  }
+  if (!rows.length) return { snapshot: null };
+  // Nearest to `at` by month; with no date, the most recent.
+  const months = (ts: string) => Number(ts.slice(0, 4)) * 12 + Number(ts.slice(4, 6));
+  const score = (ts: string) => (at ? Math.abs(months(ts) - months(at)) : -Number(ts));
+  const [timestamp, original] = rows.reduce((best, r) => (score(r[0]!) < score(best[0]!) ? r : best));
+  return { snapshot: { timestamp, url: `https://web.archive.org/web/${timestamp}/${original}` } };
+}
+
 /** The workspace's member list; visible to every member. */
 /**
  * Every saved description for this workspace's videos, for the Excel export's Descriptions sheet.
@@ -520,6 +551,7 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
         }
       }
       if (sub === 'descriptions' && method === 'GET') return json(await descriptions(env, ws));
+      if (sub === 'wayback' && method === 'POST') return json(await archivedCopy(env, ws, await body(req)));
       if (sub === 'fixes' && method === 'POST') return json(await setFix(env, ws, me, await body(req)));
       if (sub === 'text-edits' && !seg[3] && method === 'POST') return json(await addTextEdits(env, ws, me, await body(req)));
       if (sub === 'text-edits' && seg[3] && method === 'DELETE') {

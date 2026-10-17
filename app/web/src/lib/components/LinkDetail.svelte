@@ -8,6 +8,11 @@
   import ItemArrows from './ItemArrows.svelte';
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import FileText from '@lucide/svelte/icons/file-text';
+  import Play from '@lucide/svelte/icons/play';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import { slide } from 'svelte/transition';
+  import { SvelteSet } from 'svelte/reactivity';
+  import DescriptionPeek from './DescriptionPeek.svelte';
   import Hint from './Hint.svelte';
   import { toast } from 'svelte-sonner';
   import PlannedFix from './PlannedFix.svelte';
@@ -84,6 +89,14 @@
     const id = app.report?.rules.find((x) => x.type === 'working' && x.value === url)?.id;
     toast.success('Marked as working. It counts as OK in this workspace.', { action: id ? { label: 'Undo', onClick: () => removeRule(id) } : undefined });
   }
+  // Which videos have their description drawer open; cleared when another link is shown.
+  const expanded = new SvelteSet<string>();
+  $effect(() => {
+    void row.url;
+    expanded.clear();
+  });
+  const toggle = (id: string) => (expanded.has(id) ? expanded.delete(id) : expanded.add(id));
+  const allOpen = $derived(vids.length > 0 && vids.every((v) => expanded.has(v.id)));
   const MARK_HINT = 'You opened it and it works. It counts as OK in this workspace, and is flagged again if the site starts answering with an error, like 404.';
 </script>
 
@@ -138,6 +151,10 @@
         <DropdownMenu.Separator />
         <DropdownMenu.Item disabled={!canRecheck} onSelect={() => startScan('urls', [row.url])}>Recheck now</DropdownMenu.Item>
         <DropdownMenu.Item onSelect={() => window.open(row.url, '_blank', 'noreferrer')}>Open link</DropdownMenu.Item>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Item onSelect={() => (allOpen ? expanded.clear() : vids.forEach((v) => expanded.add(v.id)))}>
+          {allOpen ? 'Collapse all descriptions' : 'Expand all descriptions'}
+        </DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
     <div class="-mr-2"><ItemArrows {onprev} {onnext} noun="link" /></div>
@@ -163,39 +180,63 @@
     </section>
 
     <div class="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">Used in</div>
-    <ul class="pb-2">
+    <!-- Each video can open a drawer with a small read-only copy of its description, scrolled to
+         this link (DescriptionPeek). The ⋯ menu opens or closes them all. -->
+    <ul class="space-y-px px-1.5 pb-2">
       {#each vids as v (v.id)}
         <!-- Problem links in this video besides this one. -->
         {@const others = (problemsByVideo.get(v.id) ?? 0) - (countsAsProblem(row) ? 1 : 0)}
-        <li class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2">
-          <img src="https://i.ytimg.com/vi/{v.id}/mqdefault.jpg" alt="" loading="lazy" class="bg-muted aspect-video w-16 shrink-0 rounded-[4px] object-cover" />
-          <div class="min-w-0 flex-1 basis-40">
-            <div class="truncate text-sm" title={v.title}>{v.title}</div>
-            <div class="text-muted-foreground flex flex-wrap gap-x-2 text-xs">
-              {#if multiChannel}<span>{channelTitle[v.channelId]}</span>{/if}
-              {#if others > 0}<span class="text-[#8a5a00] dark:text-[#fac34d]">+{others} other problem link{others === 1 ? '' : 's'}</span>{/if}
-            </div>
-          </div>
-          <div class="flex shrink-0 items-center gap-3">
-            <a class="text-muted-foreground hover:text-foreground shrink-0 text-xs" href="https://www.youtube.com/watch?v={v.id}" target="_blank" rel="noreferrer">Watch</a>
-            {#if problemsByVideo.get(v.id)}
-              <button
-                class="hover:bg-muted inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-150"
-                onclick={() => (ui.openVideo = { id: v.id, tab: 'description', url: row.url })}
-              >
-                <FileText class="size-3" /> Fix description
-              </button>
-            {/if}
-            <a
-              class="hover:bg-muted inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-150"
-              href={studioUrl(v.id)}
-              use:studioLink
-              target="_blank"
-              rel="noreferrer"
+        {@const isOpen = expanded.has(v.id)}
+        <li class="rounded-lg transition-colors duration-150 {isOpen ? 'bg-muted/40' : 'hover:bg-muted/40'}">
+          <div class="flex items-center gap-1 py-1.5 pr-1.5 pl-1">
+            <button
+              type="button"
+              class="focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-0.5 pl-1 text-left outline-none focus-visible:ring-2"
+              aria-expanded={isOpen}
+              aria-label="{isOpen ? 'Hide' : 'Show'} where it’s used in {v.title}"
+              onclick={() => toggle(v.id)}
             >
-              Studio <ExternalLink class="size-3" />
-            </a>
+              <ChevronRight class="text-muted-foreground size-3.5 shrink-0 transition-transform duration-150 {isOpen ? 'rotate-90' : ''}" />
+              <img src="https://i.ytimg.com/vi/{v.id}/mqdefault.jpg" alt="" loading="lazy" class="bg-muted aspect-video w-16 shrink-0 rounded-[4px] object-cover" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm" title={v.title}>{v.title}</span>
+                <span class="text-muted-foreground flex flex-wrap gap-x-2 text-xs">
+                  {#if multiChannel}<span>{channelTitle[v.channelId]}</span>{/if}
+                  {#if others > 0}<span class="text-[#8a5a00] dark:text-[#fac34d]">+{others} other problem link{others === 1 ? '' : 's'}</span>{/if}
+                </span>
+              </span>
+            </button>
+            <Hint text="Watch on YouTube">
+              {#snippet children(tip)}
+                <Button {...tip} size="icon-sm" variant="ghost" class="text-muted-foreground" aria-label="Watch on YouTube" href="https://www.youtube.com/watch?v={v.id}" target="_blank" rel="noreferrer"
+                  ><Play /></Button
+                >
+              {/snippet}
+            </Hint>
+            <Hint text="Fix description">
+              {#snippet children(tip)}
+                <Button {...tip} size="icon-sm" variant="ghost" class="text-muted-foreground" aria-label="Fix description" onclick={() => (ui.openVideo = { id: v.id, tab: 'description', url: row.url })}
+                  ><FileText /></Button
+                >
+              {/snippet}
+            </Hint>
+            <Hint text="Open in YouTube Studio">
+              {#snippet children(tip)}
+                <a
+                  {...tip}
+                  class="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors duration-150"
+                  aria-label="Open in YouTube Studio"
+                  href={studioUrl(v.id)}
+                  use:studioLink
+                  target="_blank"
+                  rel="noreferrer"><ExternalLink class="size-4" /></a
+                >
+              {/snippet}
+            </Hint>
           </div>
+          {#if isOpen}
+            <div class="px-2 pb-2" transition:slide={{ duration: 150 }}><DescriptionPeek video={v} url={row.url} /></div>
+          {/if}
         </li>
       {/each}
     </ul>
