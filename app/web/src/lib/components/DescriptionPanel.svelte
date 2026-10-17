@@ -465,7 +465,11 @@
     channelId={video.channelId}
     sourceText={source.text}
     isLink={!!selLink}
-    onlink={() => ((sel = null), (popLink = { url: s.text.trim(), from: s.from, to: s.to, left: s.left, top: s.top, bottom: s.bottom }))}
+    onlink={() => {
+      // `s` follows `sel`, so read it before clearing the selection.
+      popLink = { url: s.text.trim(), from: s.from, to: s.to, left: s.left, top: s.top, bottom: s.bottom };
+      sel = null;
+    }}
     onclose={() => (sel = null)}
     onsaved={quickSaved}
   />
