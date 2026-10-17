@@ -187,7 +187,9 @@
   });
   // The open video's tab, kept while moving between videos, and a link for its description to scroll to.
   let tab = $state<'links' | 'description'>('description');
-  let focus = $state<{ url: string; n: number } | null>(null);
+  // A link for the open video's description to scroll to; it belongs to that one video, so the
+  // next video to open (an arrow, or a check that found it fixed) doesn't look for it too.
+  let focus = $state<{ url: string; n: number; video: string } | null>(null);
   let focusCount = 0;
 
   /** Opens a link or video in the content pane and keeps its row in view in the list. */
@@ -216,7 +218,7 @@
     ui.openVideo = null;
     view = 'videos';
     tab = req.tab;
-    if (req.url) focus = { url: req.url, n: ++focusCount };
+    if (req.url) focus = { url: req.url, n: ++focusCount, video: req.id };
     pick('video', req.id);
   });
   // ...and for a link, e.g. from a link chip's editor in a description. If the list's filter,
@@ -237,7 +239,7 @@
   });
   function locate(url: string) {
     tab = 'description';
-    focus = { url, n: ++focusCount };
+    if (currentGroup) focus = { url, n: ++focusCount, video: currentGroup.video.id };
   }
   /** The items before and after the open one in the list's order, for the content pane's arrows. */
   const around = $derived.by(() => {
@@ -640,7 +642,7 @@
             <VideoDetail
               group={currentGroup}
               bind:tab
-              {focus}
+              focus={focus?.video === currentGroup.video.id ? focus : null}
               {channelTitle}
               multiChannel={report.channels.length > 1}
               onlocate={locate}
