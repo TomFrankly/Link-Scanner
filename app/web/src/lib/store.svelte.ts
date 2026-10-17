@@ -45,6 +45,8 @@ export const ui = $state({
   fixLinkUrl: null as string | null,
   fixLinkChannel: '',
   openVideo: null as { id: string; tab: 'links' | 'description'; url?: string } | null,
+  /** A link to open in the Links view, e.g. from a link chip's editor (LinkPopover). */
+  openLink: null as string | null,
   /** Whether the Help dialog (help/HelpDialog.svelte) is open; the sidebar's Help item opens it. */
   help: false,
   /** The Help page to show; null shows the page list (the start screen on phones). */

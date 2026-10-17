@@ -8,7 +8,7 @@
   // store.svelte.ts, already classified in the browser with this workspace's rules, so
   // filtering, searching and the counts here never call the server. Other pages open a video
   // here through `ui.openVideo`.
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Info from '@lucide/svelte/icons/info';
@@ -218,6 +218,22 @@
     tab = req.tab;
     if (req.url) focus = { url: req.url, n: ++focusCount };
     pick('video', req.id);
+  });
+  // ...and for a link, e.g. from a link chip's editor in a description. If the list's filter,
+  // channel or search hides it, those reset so it shows.
+  $effect(() => {
+    const url = ui.openLink;
+    if (!url) return;
+    ui.openLink = null;
+    view = 'links';
+    if (!untrack(() => rows).some((r) => r.url === url)) {
+      query = '';
+      searching = false;
+      channel = 'all';
+      const cat = data.rows.find((r) => r.url === url)?.cls.category;
+      setFilter(cat && FILTERS[0]!.match(cat) ? 'attention' : 'all');
+    }
+    tick().then(() => pick('link', url));
   });
   function locate(url: string) {
     tab = 'description';

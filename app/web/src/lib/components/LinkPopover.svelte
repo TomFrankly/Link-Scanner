@@ -10,8 +10,11 @@
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import Trash from '@lucide/svelte/icons/trash-2';
   import { Button } from '$lib/components/ui/button';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import StatusBadge from './StatusBadge.svelte';
-  import { data } from '$lib/store.svelte';
+  import PlanFixButton from './PlanFixButton.svelte';
+  import Hint from './Hint.svelte';
+  import { data, ui } from '$lib/store.svelte';
   import type { LinkClick } from './DescriptionEditor.svelte';
 
   let {
@@ -48,9 +51,17 @@
   const left = $derived(Math.max(8, Math.min(link.left, window.innerWidth - WIDTH - 8)));
   const below = $derived(link.bottom + 200 < window.innerHeight);
 
-  // Close on a click anywhere else (but not the click that opened it, which landed on a chip).
+  // Close on a click anywhere else (but not the click that opened it, which landed on a chip,
+  // nor one in the Plan fix menu, which opens outside the popover).
   function outside(e: PointerEvent) {
-    if (box && !box.contains(e.target as Node) && !(e.target as HTMLElement).closest?.('.cm-link')) onclose();
+    const t = e.target as HTMLElement;
+    if (box && !box.contains(t) && !t.closest?.('.cm-link, [role="menu"]')) onclose();
+  }
+  /** Opens this link's entry in the Links view. */
+  function goToLink() {
+    if (!source) return;
+    ui.openLink = source;
+    onclose();
   }
 </script>
 
@@ -68,9 +79,17 @@
   style="left: {left}px; width: min({WIDTH}px, calc(100vw - 16px)); {below ? `top: ${link.bottom + 6}px` : `bottom: ${window.innerHeight - link.top + 6}px`}"
 >
   {#if row}
-    <div class="flex items-center gap-2">
+    <!-- Plan fix has the same choices as the link's own page; the arrow opens that page. -->
+    <div class="flex items-center gap-1.5">
       <StatusBadge category={row.cls.category} tooltip={false} />
-      <span class="text-muted-foreground text-xs">in {row.videos.length} video{row.videos.length === 1 ? '' : 's'}</span>
+      <Hint text="Open this link in the Links view">
+        {#snippet children(tip)}
+          <button {...tip} type="button" class="text-muted-foreground hover:text-foreground inline-flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-xs transition-colors duration-150" onclick={goToLink}>
+            <span class="truncate">{row.videos.length} video{row.videos.length === 1 ? '' : 's'}</span><ArrowRight class="size-3 shrink-0" />
+          </button>
+        {/snippet}
+      </Hint>
+      <span class="ml-auto"><PlanFixButton {row} /></span>
     </div>
     {#if source !== link.url}<div class="text-muted-foreground font-mono text-xs break-all">Planned replacement for {source}</div>{/if}
     <form class="space-y-2.5" onsubmit={submit}>
