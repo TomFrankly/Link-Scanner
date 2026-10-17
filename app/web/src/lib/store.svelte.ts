@@ -8,8 +8,9 @@
 // Rules are applied in the browser, so editing an exception list
 // reclassifies every link instantly without asking the server to recheck anything.
 import { toast } from 'svelte-sonner';
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { classify, cleanDomain, hostOf, type LinkResult, type Rules } from '$shared/core';
+import { FIXABLE } from '$shared/fixes';
 import { effectiveRules, type RuleRow, type RuleType } from '$shared/rules';
 import type { FoundEdit, TextEdit } from '$shared/textEdits';
 import { api } from './api';
@@ -270,6 +271,45 @@ export async function findArchivedCopy(url: string, at: string | null) {
   } catch (e) {
     fail(e);
     return undefined;
+  }
+}
+
+/**
+ * Descriptions fetched from YouTube this session, by video id, so switching tabs or reopening a
+ * video doesn't spend another quota unit. A page reload fetches fresh copies. Reactive, so a
+ * check (checkVideo) updates any editor showing that video.
+ */
+export const fetchedDescriptions = new SvelteMap<string, string>();
+/** Videos being checked on YouTube (checkVideo), for the button's spinner. */
+export const videoChecks = new SvelteSet<string>();
+
+/**
+ * After a description was fixed in YouTube Studio: reads it from YouTube again (1 unit) and
+ * updates the report as a scan would (worker scan.ts refreshVideo). If no problem link is left,
+ * the video drops out of "Needs attention". Says which links are left otherwise, or that YouTube
+ * still has the old text (a save in Studio can take a moment to reach the API).
+ */
+export async function checkVideo(video: VideoRef) {
+  if (videoChecks.has(video.id)) return;
+  videoChecks.add(video.id);
+  try {
+    const res = await api<{ description: string; changed: boolean }>(`/w/${app.wsId}/videos/${encodeURIComponent(video.id)}/refresh`, { method: 'POST', body: {} });
+    fetchedDescriptions.set(video.id, res.description);
+    await loadReport();
+    const left = data.rows.filter((r) => FIXABLE.includes(r.cls.category) && r.videos.some((v) => v.id === video.id));
+    const short = (u: string) => u.replace(/^https?:\/\/(www\.)?/, '');
+    if (!left.length) toast.success('Fixed. YouTube has no problem links left in this video.', { description: video.title });
+    else if (!res.changed)
+      toast.info('YouTube still has the description from before.', { description: 'If you just saved it in Studio, give it a minute and check again.', duration: 8000 });
+    else
+      toast.warning(`${left.length} problem link${left.length === 1 ? ' is' : 's are'} still in this video on YouTube`, {
+        description: left.slice(0, 3).map((r) => short(r.url)).join(', ') + (left.length > 3 ? `, and ${left.length - 3} more` : ''),
+        duration: 8000,
+      });
+  } catch (e) {
+    fail(e);
+  } finally {
+    videoChecks.delete(video.id);
   }
 }
 

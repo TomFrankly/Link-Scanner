@@ -172,7 +172,19 @@
   let pickedLink = $state<string | null>(null);
   let pickedVideo = $state<string | null>(null);
   const currentLink = $derived(rows.find((r) => r.url === pickedLink) ?? (stacked ? null : (rows[0] ?? null)));
-  const currentGroup = $derived(groups.find((g) => g.video.id === pickedVideo) ?? (stacked ? null : (groups[0] ?? null)));
+  // Where the picked video sat in the list: when it leaves the list (a check found it fixed), the
+  // video that moved into its place opens, so you can go straight on to the next one.
+  let pickedAt = 0;
+  const currentGroup = $derived.by(() => {
+    const at = groups.findIndex((g) => g.video.id === pickedVideo);
+    if (at >= 0) return groups[at]!;
+    if (pickedVideo && !stacked && groups.length) return groups[Math.min(pickedAt, groups.length - 1)]!;
+    return stacked ? null : (groups[0] ?? null);
+  });
+  $effect(() => {
+    const at = groups.findIndex((g) => g.video.id === pickedVideo);
+    if (at >= 0) pickedAt = at;
+  });
   // The open video's tab, kept while moving between videos, and a link for its description to scroll to.
   let tab = $state<'links' | 'description'>('description');
   let focus = $state<{ url: string; n: number } | null>(null);

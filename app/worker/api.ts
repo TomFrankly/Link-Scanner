@@ -25,7 +25,7 @@ import { cleanDomain } from '../shared/core.ts';
 import { acceptedKey, appDefaults, type RuleType } from '../shared/rules.ts';
 import { currentEmail } from './auth.ts';
 import { HttpError, now, today, todayStart, type Env } from './env.ts';
-import { createScan, estimates, latestScan, usageToday, type ScanKind, type WorkspaceRow } from './scan.ts';
+import { createScan, estimates, latestScan, refreshVideo, usageToday, type ScanKind, type WorkspaceRow } from './scan.ts';
 import { DEFAULT_DAILY_UNITS, fetchDescription, QuotaError, resolveChannel } from './youtube.ts';
 
 const MAX_VIDEOS_PER_CHANNEL = 5000;
@@ -213,6 +213,16 @@ const fixesQuery = (env: Env, wsId: string) =>
   env.DB.prepare(
     'SELECT url, channel_id AS channelId, action, replacement, added_by AS addedBy, added_at AS addedAt FROM link_fixes WHERE workspace_id = ?1',
   ).bind(wsId);
+
+/** Throws 404 unless the video belongs to one of the workspace's channels, so routes can't spend quota on others. */
+async function ownedVideo(env: Env, ws: WorkspaceRow, videoId: string) {
+  const owned = await env.DB.prepare(
+    'SELECT 1 FROM videos v JOIN workspace_channels wc ON wc.channel_id = v.channel_id WHERE wc.workspace_id = ? AND v.id = ?',
+  )
+    .bind(ws.id, videoId)
+    .first();
+  if (!owned) throw new HttpError(404, 'Video not found in this workspace');
+}
 
 /** '' (every channel), or a channel id that must belong to the workspace. */
 async function channelScope(env: Env, ws: WorkspaceRow, v: unknown): Promise<string> {
@@ -531,6 +541,16 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
       if (sub === 'channels' && seg[3] && method === 'DELETE') {
         await env.DB.prepare('DELETE FROM workspace_channels WHERE workspace_id = ? AND channel_id = ?').bind(ws.id, seg[3]).run();
         return json({ ok: true });
+      }
+      if (sub === 'videos' && seg[3] && seg[4] === 'refresh' && !seg[5] && method === 'POST') {
+        await body(req); // JSON only, like every mutating route
+        await ownedVideo(env, ws, seg[3]);
+        try {
+          return json(await refreshVideo(env, ws.id, seg[3]));
+        } catch (e) {
+          if (e instanceof QuotaError) throw new HttpError(429, e.message);
+          throw e;
+        }
       }
       if (sub === 'videos' && seg[3] && seg[4] === 'description' && !seg[5] && method === 'GET') {
         const owned = await env.DB.prepare(

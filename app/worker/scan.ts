@@ -16,7 +16,7 @@ import { SKIP_DOMAINS } from '../shared/rules.ts';
 import { HttpError, now, today, todayStart, type CheckItem, type Env, type Job } from './env.ts';
 import { BudgetExceeded, makeFetcher, SUBREQUEST_BUDGET } from './fetcher.ts';
 import { notifyScanEnded } from './notify.ts';
-import { DEFAULT_DAILY_UNITS, fetchUploadsPage, QuotaError, resolveChannel } from './youtube.ts';
+import { DEFAULT_DAILY_UNITS, fetchDescription, fetchUploadsPage, QuotaError, resolveChannel } from './youtube.ts';
 
 // Links per `check` message: with per-host delays and redirects, about what fits in one
 // invocation's subrequest budget and wall time.
@@ -333,27 +333,30 @@ async function handleFetch(env: Env, job: Extract<Job, { t: 'fetch' }>) {
 type Checked = Omit<LinkResult, 'prevFinalUrl' | 'checkedAt'>;
 
 /**
+ * The statement that saves check results to the workspace's rows of `links`. When a link's final
+ * URL changes, the old one is kept in prev_final_url so the report can flag a changed destination.
+ */
+const upsertResults = (env: Env, workspaceId: string, results: Checked[]) =>
+  env.DB.prepare(
+    `INSERT INTO links (workspace_id, url, outcome, status, final_url, chain, parked, note, first_seen, checked_at)
+     SELECT ?3, value->>'url', value->>'outcome', value->>'status', value->>'finalUrl', value->>'chain',
+            COALESCE(value->>'parked', 0), value->>'note', ?1, ?1
+     FROM json_each(?2) WHERE true
+     ON CONFLICT (workspace_id, url) DO UPDATE SET
+       prev_final_url = CASE WHEN excluded.outcome = 'final' AND links.outcome = 'final' AND links.final_url != excluded.final_url
+                             THEN links.final_url ELSE links.prev_final_url END,
+       outcome = excluded.outcome, status = excluded.status, final_url = excluded.final_url,
+       chain = excluded.chain, parked = excluded.parked, note = excluded.note, checked_at = excluded.checked_at`,
+  ).bind(now(), JSON.stringify(results), workspaceId);
+
+/**
  * Upserts check results into the workspace's rows of `links` and advances the scan's progress in
  * one batch; finishes the scan when every link is done. When a link's final URL changes,
  * the old one is kept in prev_final_url so the report can flag a changed destination.
  */
 async function saveResults(env: Env, scan: ScanRow, results: Checked[]) {
   const stmts = [];
-  if (results.length) {
-    stmts.push(
-      env.DB.prepare(
-        `INSERT INTO links (workspace_id, url, outcome, status, final_url, chain, parked, note, first_seen, checked_at)
-         SELECT ?3, value->>'url', value->>'outcome', value->>'status', value->>'finalUrl', value->>'chain',
-                COALESCE(value->>'parked', 0), value->>'note', ?1, ?1
-         FROM json_each(?2) WHERE true
-         ON CONFLICT (workspace_id, url) DO UPDATE SET
-           prev_final_url = CASE WHEN excluded.outcome = 'final' AND links.outcome = 'final' AND links.final_url != excluded.final_url
-                                 THEN links.final_url ELSE links.prev_final_url END,
-           outcome = excluded.outcome, status = excluded.status, final_url = excluded.final_url,
-           chain = excluded.chain, parked = excluded.parked, note = excluded.note, checked_at = excluded.checked_at`,
-      ).bind(now(), JSON.stringify(results), scan.workspace_id),
-    );
-  }
+  if (results.length) stmts.push(upsertResults(env, scan.workspace_id, results));
   stmts.push(
     env.DB.prepare(
       'UPDATE scans SET done = done + ?1, recent = COALESCE(?2, recent), updated_at = ?3 WHERE id = ?4 RETURNING done, total',
@@ -520,4 +523,48 @@ export async function sweepStalledScans(env: Env) {
       .run();
     await enqueueChecks(env, scan.id, remaining);
   }
+}
+
+/**
+ * Re-reads one video's description from YouTube (1 unit) after it was edited in Studio, and
+ * updates what the report knows: the saved description and the video's links, as a full scan
+ * would. Links it hasn't seen in this workspace are checked now, as far as this request's
+ * subrequest budget goes; any left over are checked by the next recheck. `changed` is false when
+ * YouTube returns the same text and links as before (a save in Studio can take a moment to show
+ * in the API). The links count too: opening the video's Description tab saves the text, not links.
+ */
+export async function refreshVideo(env: Env, workspaceId: string, videoId: string) {
+  const [prev, prevLinks] = await env.DB.batch<{ description?: string | null; url?: string }>([
+    env.DB.prepare('SELECT description FROM videos WHERE id = ?').bind(videoId),
+    env.DB.prepare('SELECT url FROM video_links WHERE video_id = ? ORDER BY url').bind(videoId),
+  ]);
+  const description = await fetchDescription(env, videoId);
+  const urls = extractUrls(description, SKIP_DOMAINS);
+  const known = new Set(
+    (
+      await env.DB.prepare("SELECT url FROM links WHERE workspace_id = ? AND url IN (SELECT value FROM json_each(?))")
+        .bind(workspaceId, JSON.stringify(urls))
+        .all<{ url: string }>()
+    ).results.map((r) => r.url),
+  );
+  const { io, budget } = makeFetcher();
+  const results: Checked[] = [];
+  for (const url of urls.filter((u) => !known.has(u))) {
+    if (SUBREQUEST_BUDGET - budget.used < MIN_BUDGET_TO_START) break;
+    try {
+      results.push(await checkUrl(url, io));
+    } catch (e) {
+      if (e instanceof BudgetExceeded) break;
+      console.error('check failed', url, e);
+    }
+  }
+  const stmts = [
+    env.DB.prepare('UPDATE videos SET description = ?, description_at = ? WHERE id = ?').bind(description, now(), videoId),
+    env.DB.prepare('DELETE FROM video_links WHERE video_id = ?').bind(videoId),
+    env.DB.prepare("INSERT OR IGNORE INTO video_links (video_id, url) SELECT ?, value FROM json_each(?)").bind(videoId, JSON.stringify(urls)),
+  ];
+  if (results.length) stmts.push(upsertResults(env, workspaceId, results));
+  await env.DB.batch(stmts);
+  const before = prevLinks!.results.map((r) => r.url).join(' ');
+  return { description, changed: prev!.results[0]?.description !== description || before !== [...new Set(urls)].sort().join(' ') };
 }

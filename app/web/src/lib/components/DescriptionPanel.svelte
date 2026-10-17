@@ -1,9 +1,3 @@
-<script lang="ts" module>
-  // Descriptions fetched this session, by video id, so switching tabs or reopening a video
-  // doesn't spend another YouTube quota unit. A page reload fetches fresh copies.
-  const fetched = new Map<string, string>();
-</script>
-
 <script lang="ts">
   // The Description tab of the video open in the report's Videos view: the video's links down
   // the side (each with Plan fix and a locate button), and its description with fixes applied,
@@ -41,7 +35,10 @@
   import { Skeleton } from '$lib/components/ui/skeleton';
   import { api } from '$lib/api';
   import Resizer from './Resizer.svelte';
-  import { app, data, layout, removeTextEdit, openHelp, setFix, ui } from '$lib/store.svelte';
+  import { app, checkVideo, data, fetchedDescriptions, layout, removeTextEdit, openHelp, setFix, videoChecks } from '$lib/store.svelte';
+  import { untrack } from 'svelte';
+  import CheckCheck from '@lucide/svelte/icons/check-check';
+  import Loader from '@lucide/svelte/icons/loader-circle';
   import { hasStudioTab, openStudio } from '$lib/studio';
   import Hint from './Hint.svelte';
   import { applyFixes, FIXABLE, reasonFor, REDIRECTS, removeLinks, updateRedirects, urlsIn, type FixResult, type Problem } from '$shared/fixes';
@@ -86,17 +83,14 @@
   const hasRedirects = $derived(problems.some((p) => REDIRECTS.includes(p.category) && p.finalUrl && p.finalUrl !== p.url));
 
   // ---- description: fetched from YouTube (1 quota unit) the first time a video's tab opens ----
-  let description = $state<string | null>(null);
+  // Kept for the session in the store, which "Check" (checkVideo) also updates.
+  const description = $derived(fetchedDescriptions.get(video.id) ?? null);
   let loadError = $state<string | null>(null);
   $effect(() => {
     const id = video.id; // the panel is keyed by video, so this runs once
-    const cached = fetched.get(id);
-    if (cached !== undefined) return void (description = cached);
+    if (untrack(() => fetchedDescriptions.has(id))) return;
     api<{ description: string }>(`/w/${app.wsId}/videos/${encodeURIComponent(id)}/description`)
-      .then((r) => {
-        fetched.set(id, r.description);
-        description = r.description;
-      })
+      .then((r) => fetchedDescriptions.set(id, r.description))
       .catch((e) => (loadError = (e as Error).message));
   });
 
@@ -424,6 +418,12 @@
         <Hint text="Copy the description and open this video in YouTube Studio" side="bottom">
           {#snippet children(tip)}<Button {...tip} size="sm" onclick={() => copy(true)} disabled={description === null}>
             <Copy /> Copy & open<span class="hidden @xl:inline">Studio</span> <ExternalLink />
+          </Button>{/snippet}
+        </Hint>
+        <!-- After pasting in Studio and saving: reads the description on YouTube again. -->
+        <Hint text="Saved it in Studio? Check the description on YouTube (1 unit of quota). Once no problem links are left, the video leaves Needs attention." side="bottom">
+          {#snippet children(tip)}<Button {...tip} size="sm" variant="outline" onclick={() => checkVideo(video)} disabled={description === null || videoChecks.has(video.id)} aria-label="Check on YouTube">
+            {#if videoChecks.has(video.id)}<Loader class="motion-safe:animate-spin" />{:else}<CheckCheck />{/if}<span class="hidden @lg:inline">Check</span>
           </Button>{/snippet}
         </Hint>
         {#if !hasStudioTab()}
