@@ -13,6 +13,8 @@
   /** Selected text, for the quick edit bar; screen positions of its start and end. */
   export interface TextSelection {
     text: string;
+    /** The selection covers whole lines, so removing it can take the lines out entirely (no blank line left). */
+    wholeLines?: boolean;
     from: number;
     to: number;
     left: number;
@@ -282,7 +284,13 @@
     const a = v.coordsAtPos(r.from);
     const b = v.coordsAtPos(r.to, -1);
     if (!a || !b) return onselect(null);
-    onselect({ text, from: r.from, to: r.to, left: a.left, top: a.top, bottom: b.bottom });
+    // Whole lines: starts at a line's start and ends at a line's end (or the next line's start).
+    const doc = v.state.doc;
+    const first = doc.lineAt(r.from);
+    const endsAtBreak = r.to > r.from && doc.sliceString(r.to - 1, r.to) === '\n';
+    const last = doc.lineAt(endsAtBreak ? r.to - 1 : r.to);
+    const wholeLines = r.from === first.from && (endsAtBreak || r.to === last.to);
+    onselect({ text, wholeLines, from: r.from, to: r.to, left: a.left, top: a.top, bottom: b.bottom });
   }
 
   // Text set from outside (another tab, a saved fix, Undo my edits) replaces the document.

@@ -281,7 +281,13 @@
     sel = null;
     // With unsaved hand edits the text no longer follows the saved edits, so change it here too.
     if (edited) text = text.split(find).join(replace);
-    toast.success(`Replaced in ${videos === 1 ? 'this video' : `${videos} videos`}. It applies here and in the Excel export.`);
+    // The edit just saved (the newest one with this text), so the toast can undo it.
+    const saved = app.report?.textEdits.filter((e) => e.find === find && e.replace === replace).sort((a, b) => b.id - a.id)[0];
+    const where = videos === 1 ? 'this video' : `${videos} videos`;
+    toast.success(`${replace ? 'Replaced in' : 'Removed from'} ${where}. It applies here and in the Excel export.`, {
+      action: saved && !edited ? { label: 'Undo', onClick: () => removeTextEdit(saved.id) } : undefined,
+      duration: 8000,
+    });
   }
 
   // A saved edit's first changed line, for the list under the editor.

@@ -5,14 +5,19 @@
   // or only this video. It's saved as a text edit of kind 'text' (shared/textEdits.ts), which
   // replaces that exact text, inside lines too, in the videos it covers. The other videos are
   // searched in their saved descriptions (from full scans), so it costs no YouTube quota.
+  // The bar also offers "Remove from N videos": as soon as text is selected it counts the videos
+  // whose description has it, and one click saves a removal for all of them (a selection of whole
+  // lines takes their line break too, so no blank line is left). The toast has Undo.
   // A selection that's exactly one of the video's links offers "Change link" instead, which
   // opens the link popover (a planned link fix is the better tool for links).
   import { tick } from 'svelte';
   import PencilLine from '@lucide/svelte/icons/pencil-line';
   import Link2 from '@lucide/svelte/icons/link-2';
+  import Trash from '@lucide/svelte/icons/trash-2';
+  import Hint from './Hint.svelte';
   import { Button } from '$lib/components/ui/button';
   import { app, data, loadDescriptions, saveTextEdits } from '$lib/store.svelte';
-  import { applyTextEdits } from '$shared/textEdits';
+  import { applyTextEdits, contains, type EditKind } from '$shared/textEdits';
   import type { TextSelection } from './DescriptionEditor.svelte';
 
   let {
@@ -42,59 +47,87 @@
   let value = $state('');
   let input = $state<HTMLTextAreaElement>();
   let box = $state<HTMLDivElement>();
-  let scope = $state<'all' | 'channel' | 'here'>('all');
   let saving = $state(false);
-  const find = $derived(sel.text);
+  // Whole selected lines are matched and saved as lines (kind 'lines'): they match the same
+  // lines in other videos even where one is a description's last line (no line break after it),
+  // and removing them leaves no blank line. Anything else is exact text (kind 'text').
+  const kind = $derived<EditKind>(sel.wholeLines ? 'lines' : 'text');
+  const find = $derived(sel.wholeLines ? sel.text.replace(/\n$/, '') : sel.text);
   // A text edit runs before planned link fixes, so it can only change text that's there then.
-  const inSource = $derived(sourceText.includes(find));
+  const inSource = $derived(contains(sourceText, find, kind));
 
-  // Other videos with the same text: every channel, and this video's channel. Null while searching.
+  // Other videos with the same text: every channel, and this video's channel. Null while
+  // searching, which starts as soon as text is selected, for the bar's Remove button.
   let others = $state<{ all: number; channel: number } | null>(null);
   let searchError = $state<string | null>(null);
+  $effect(() => {
+    const [text, k, here, ch] = [find, kind, videoId, channelId];
+    others = null;
+    searchError = null;
+    if (!inSource || isLink) return;
+    let stale = false;
+    loadDescriptions()
+      .then((all) => {
+        if (stale) return;
+        // Read here, untracked, so saving an edit doesn't restart the count mid-save.
+        const rules = app.report?.textEdits ?? [];
+        const counts = { all: 0, channel: 0 };
+        for (const v of app.report?.videos ?? []) {
+          if (v.id === here) continue;
+          const d = all.get(v.id)?.d;
+          if (d == null || !contains(applyTextEdits(d, rules, v.id, v.c).text, text, k)) continue;
+          counts.all++;
+          if (v.c === ch) counts.channel++;
+        }
+        others = counts;
+      })
+      .catch((e) => !stale && (searchError = (e as Error).message));
+    return () => (stale = true);
+  });
   async function startForm() {
     open = true;
     value = find;
     await tick();
     input?.focus();
     input?.select();
-    if (!inSource) return;
-    const rules = app.report?.textEdits ?? [];
-    loadDescriptions()
-      .then((all) => {
-        let n = 0;
-        let inChannel = 0;
-        for (const v of app.report?.videos ?? []) {
-          if (v.id === videoId) continue;
-          const d = all.get(v.id)?.d;
-          if (d == null || !applyTextEdits(d, rules, v.id, v.c).text.includes(find)) continue;
-          n++;
-          if (v.c === channelId) inChannel++;
-        }
-        others = { all: n, channel: inChannel };
-        if (!n) scope = 'here';
-      })
-      .catch((e) => (searchError = (e as Error).message));
+  }
+
+  /** One click: removes the selected text from this video and every other video that has it. */
+  async function removeEverywhere() {
+    if (!others || saving) return;
+    saving = true;
+    const n = 1 + others.all;
+    const ok = await saveTextEdits([{ find, replace: '', kind, videos: n > 1 ? null : [videoId] }]);
+    saving = false;
+    if (ok) onsaved(find, '', n);
   }
   const multiChannel = $derived((app.report?.channels.length ?? 0) > 1);
   const channelName = $derived(data.channelTitle[channelId] ?? 'this channel');
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-  async function save(e: SubmitEvent) {
-    e.preventDefault();
+  type Where = 'all' | 'channel' | 'here';
+  /** Saves the replacement for `where`: every video with the text, this channel's, or only this one. */
+  async function save(where: Where) {
     if (!inSource || value === find || saving) return;
     saving = true;
+    const n = 1 + (where === 'all' ? (others?.all ?? 0) : where === 'channel' ? (others?.channel ?? 0) : 0);
     const ok = await saveTextEdits([
-      scope === 'here'
-        ? { find, replace: value, kind: 'text', videos: [videoId] }
-        : { find, replace: value, kind: 'text', videos: null, channelId: scope === 'channel' ? channelId : null },
+      where === 'here'
+        ? { find, replace: value, kind, videos: [videoId] }
+        : { find, replace: value, kind, videos: null, channelId: where === 'channel' ? channelId : null },
     ]);
     saving = false;
-    if (ok) onsaved(find, value, 1 + (scope === 'all' ? (others?.all ?? 0) : scope === 'channel' ? (others?.channel ?? 0) : 0));
+    if (ok) onsaved(find, value, n);
+  }
+  // Enter saves for the widest choice the buttons offer.
+  function submit(e: SubmitEvent) {
+    e.preventDefault();
+    if (others || searchError) save(others?.all ? 'all' : 'here');
   }
 
   // Placed above the selection, or below it when there's no room; kept inside the window.
   const WIDTH = 368;
-  const left = $derived(Math.max(8, Math.min(sel.left, window.innerWidth - (open ? WIDTH : 160) - 8)));
+  const left = $derived(Math.max(8, Math.min(sel.left, window.innerWidth - (open ? WIDTH : 320) - 8)));
   const above = $derived(sel.top > (open ? 300 : 52));
 
   // Closes on a click elsewhere, Escape, or any scroll outside it (it's placed on screen).
@@ -119,13 +152,29 @@
     {#if isLink}
       <Button size="xs" variant="ghost" onclick={onlink}><Link2 /> Change link…</Button>
     {:else}
-      <Button size="xs" variant="ghost" onclick={startForm}><PencilLine /> Replace…</Button>
+      <div class="flex items-center gap-0.5">
+        <Button size="xs" variant="ghost" onclick={startForm}><PencilLine /> Replace…</Button>
+        {#if inSource && !searchError}
+          {@const n = others ? 1 + others.all : null}
+          <Hint text={n === null ? 'Counting the videos with this text…' : n === 1 ? 'Delete this text from this video' : `Delete this text from this video and ${n - 1} other${n === 2 ? '' : 's'}, plus any that get it later`}>
+            {#snippet children(tip)}
+              <!-- A wrapper, so the hint still shows while it's counting (disabled). -->
+              <span {...tip}>
+                <Button size="xs" variant="ghost" disabled={n === null || saving} onclick={removeEverywhere}>
+                  <Trash />
+                  {n === null ? 'Remove' : n === 1 ? 'Remove' : `Remove from ${n.toLocaleString()} videos`}
+                </Button>
+              </span>
+            {/snippet}
+          </Hint>
+        {/if}
+      </div>
     {/if}
   {:else}
-    <form class="space-y-3" onsubmit={save}>
+    <form class="space-y-3" onsubmit={submit}>
       <div class="space-y-1">
         <div class="text-muted-foreground text-xs">Replace</div>
-        <div class="bg-muted line-clamp-3 rounded-md px-2 py-1 font-mono text-xs break-all whitespace-pre-wrap">{find}</div>
+        <div class="bg-muted rounded-md px-2 py-1"><div class="line-clamp-3 font-mono text-xs break-all whitespace-pre-wrap">{find}</div></div>
       </div>
       <label class="block space-y-1">
         <span class="text-muted-foreground text-xs">With</span>
@@ -148,46 +197,28 @@
 
       {#if !inSource}
         <p class="text-muted-foreground text-xs">This text comes from a planned link fix, so it can’t be saved as a text edit. Click the link to change its fix instead.</p>
-      {:else}
-        <div class="space-y-1.5 text-sm" role="radiogroup" aria-label="Where to replace it">
-          {#if searchError}
-            <p class="text-xs text-[#b42d2d] dark:text-[#f07070]">Couldn’t search other videos: {searchError}</p>
-          {:else if !others}
-            <p class="text-muted-foreground text-xs">Searching other videos…</p>
-          {:else if others.all}
-            <label class="flex cursor-pointer items-start gap-2">
-              <input type="radio" name="qe-scope" class="accent-foreground mt-1" checked={scope === 'all'} onchange={() => (scope = 'all')} />
-              <span>
-                Every video with this text
-                <span class="text-muted-foreground block text-xs">This one and {plural(others.all, 'other')}, plus any that get this text later</span>
-              </span>
-            </label>
-            {#if multiChannel && others.channel < others.all}
-              <label class="flex cursor-pointer items-start gap-2">
-                <input type="radio" name="qe-scope" class="accent-foreground mt-1" checked={scope === 'channel'} onchange={() => (scope = 'channel')} />
-                <span>
-                  {channelName}’s videos with it
-                  <span class="text-muted-foreground block text-xs">This one and {plural(others.channel, 'other')}</span>
-                </span>
-              </label>
-            {/if}
-          {:else}
-            <p class="text-muted-foreground text-xs">No other video’s saved description has this exact text.</p>
-          {/if}
-          {#if others?.all || searchError}
-            <label class="flex cursor-pointer items-start gap-2">
-              <input type="radio" name="qe-scope" class="accent-foreground mt-1" checked={scope === 'here'} onchange={() => (scope = 'here')} />
-              <span>Only this video</span>
-            </label>
-          {/if}
-        </div>
+      {:else if searchError}
+        <p class="text-xs text-[#b42d2d] dark:text-[#f07070]">Couldn’t search other videos: {searchError}</p>
+      {:else if !others}
+        <p class="text-muted-foreground text-xs">Counting other videos with this text…</p>
+      {:else if !others.all}
+        <p class="text-muted-foreground text-xs">No other video’s saved description has this exact text.</p>
+      {:else if multiChannel && others.channel && others.channel < others.all}
+        <!-- A third choice when the text is also in other channels' videos. -->
+        <button type="button" class="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2" disabled={value === find || saving} onclick={() => save('channel')}>
+          Only in {channelName}’s videos ({plural(1 + others.channel, 'video')})
+        </button>
       {/if}
 
-      <div class="flex justify-end gap-1.5">
+      <!-- Where it applies is the button you click: here, or every video with this text (including ones that get it later). -->
+      <div class="flex flex-wrap justify-end gap-1.5">
         <Button type="button" size="sm" variant="ghost" onclick={onclose}>Cancel</Button>
-        <Button type="submit" size="sm" disabled={!inSource || value === find || saving || (!others && !searchError)}>
-          {saving ? 'Saving…' : value ? 'Replace' : 'Delete'}
-        </Button>
+        {#if others?.all}
+          <Button type="button" size="sm" variant="outline" disabled={value === find || saving} onclick={() => save('here')}>{value ? 'Replace' : 'Delete'} here</Button>
+          <Button type="submit" size="sm" disabled={value === find || saving}>{saving ? 'Saving…' : `${value ? 'Replace' : 'Delete'} in ${plural(1 + others.all, 'video')}`}</Button>
+        {:else}
+          <Button type="submit" size="sm" disabled={!inSource || value === find || saving || (!others && !searchError)}>{saving ? 'Saving…' : value ? 'Replace' : 'Delete'}</Button>
+        {/if}
       </div>
     </form>
   {/if}

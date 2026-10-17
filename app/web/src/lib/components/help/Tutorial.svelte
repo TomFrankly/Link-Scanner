@@ -73,7 +73,7 @@
         'Tweak it if you like, click Copy & open Studio, and paste it into the description there. The up and down arrows (or J and K) move to the next video, and the collapse button (or [) hides the list so you can focus on one. Link Checker never changes anything on YouTube itself. It works in half a screen, so YouTube Studio can sit beside it; drag the dividers to resize the panes.',
         'Click any link in the text to change or remove it. You choose whether that applies to every video with the link, just this channel’s videos, or only this one.',
         'Links without a planned fix are outlined, with a tag saying what’s wrong; the tag isn’t part of the text, so it’s never copied.',
-        'To change some text in many videos at once, like a sponsor code or a footer line, select it and click Replace. Type the new text and choose where: every video with that exact text, this channel’s videos, or just this one.',
+        'To change some text in many videos at once, like a sponsor code or a footer line, select it. The bar above it counts the videos with that text: click Remove from N videos to delete it everywhere (Undo is in the confirmation), or Replace to type new text and save it here or in every video that has it.',
         'You can also edit the text by hand and click the save icon above the editor: Link Checker finds every other video with the same lines and offers to change them there too.',
       ],
     },

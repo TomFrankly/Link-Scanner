@@ -175,6 +175,7 @@ export async function switchWorkspace(id: string) {
 export async function loadReport() {
   if (!app.wsId) return;
   app.loadingReport = true;
+  descriptionCache = null; // a scan may have changed them
   try {
     app.report = await api<Report>(`/w/${app.wsId}`);
   } catch (e) {
@@ -254,10 +255,21 @@ export async function removeRule(id: number) {
   }
 }
 
-/** Every video's saved description (full scans save them), keyed by video id. Costs no YouTube quota. */
-export async function loadDescriptions() {
-  const res = await api<{ descriptions: { id: string; d: string | null; at: string | null }[] }>(`/w/${app.wsId}/descriptions`);
-  return new Map(res.descriptions.map((x) => [x.id, { d: x.d, at: x.at }]));
+/**
+ * Every video's saved description (full scans save them), keyed by video id. Costs no YouTube
+ * quota. Kept for a few minutes per workspace, since the quick edit asks on every selection and
+ * descriptions only change when a scan runs.
+ */
+let descriptionCache: { ws: string | null; at: number; map: Promise<Map<string, { d: string | null; at: string | null }>> } | null = null;
+const DESCRIPTION_CACHE_MS = 5 * 60_000;
+export function loadDescriptions() {
+  if (descriptionCache?.ws === app.wsId && Date.now() - descriptionCache.at < DESCRIPTION_CACHE_MS) return descriptionCache.map;
+  const map = api<{ descriptions: { id: string; d: string | null; at: string | null }[] }>(`/w/${app.wsId}/descriptions`).then(
+    (res) => new Map(res.descriptions.map((x) => [x.id, { d: x.d, at: x.at }])),
+  );
+  descriptionCache = { ws: app.wsId, at: Date.now(), map };
+  map.catch(() => (descriptionCache = null));
+  return map;
 }
 
 /** Saves hand edits as text edits; `videos` null applies one to every video with its text. */
