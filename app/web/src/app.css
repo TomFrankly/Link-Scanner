@@ -83,6 +83,29 @@
   }
 }
 
+/* Scroll bars: a thin thumb and no track, everywhere, even with "always show scroll bars" on.
+   Chrome, Edge and Firefox use the standard properties; Safari only knows the -webkit- ones. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--muted-foreground) 35%, transparent) padding-box;
+  }
+}
+
 /* Neutral chart tones for non-status segments (could not verify, ignored, not checked). */
 :root {
   --chart-neutral: #a3a3a3;

@@ -376,7 +376,7 @@
           <!-- Toolbar, one row: the Links | Videos switcher (search replaces it while it's used),
                then icon menus for the status filter and channel, and the collapse button. A dot
                marks a menu that's changed. -->
-          <div class="flex h-11 flex-none items-center gap-0.5 border-b px-2">
+          <div class="flex h-11 flex-none items-center gap-0.5 px-2">
             {#if searching || query}
               <div class="relative min-w-0 flex-1">
                 <Search class="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
@@ -475,7 +475,7 @@
           </div>
 
           <!-- What the list shows, and the sort order for links. -->
-          <div class="text-muted-foreground flex h-8 flex-none items-center gap-2 border-b pr-1.5 pl-3 text-xs">
+          <div class="text-muted-foreground flex h-8 flex-none items-center gap-2 pr-1.5 pl-3 text-xs">
             <span class="min-w-0 flex-1 truncate">
               {filterLabel}{#if channel !== 'all'}{' · '}{channelTitle[channel]}{/if} · <span class="tabular-nums">{(view === 'links' ? rows.length : groups.length).toLocaleString()}</span>
             </span>
@@ -504,16 +504,17 @@
             {/if}
           </div>
 
-          <!-- The list scrolls on its own. A container, so video rows turn into cards when it's narrow. -->
+          <!-- The list scrolls on its own. A container, so video rows turn into cards when it's narrow.
+               Rows have no dividers: each is a rounded tile, set inside the pane, that tints on hover and when picked. -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="@container min-h-0 flex-1 overflow-y-auto overscroll-contain" onkeydown={listKeys}>
+          <div class="@container min-h-0 flex-1 space-y-px overflow-y-auto overscroll-contain px-1.5 pb-2" onkeydown={listKeys}>
             {#if view === 'links'}
               {#each shown as r (r.url)}
                 {@const final = movedTo(r)}
                 {@const on = !stacked && currentLink?.url === r.url}
                 <button
                   data-link={r.url}
-                  class="block w-full border-b px-3 py-2.5 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset {on
+                  class="block w-full rounded-lg px-2.5 py-2.5 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset {on
                     ? 'bg-muted'
                     : 'hover:bg-muted/50'}"
                   aria-current={on ? 'true' : undefined}
@@ -534,7 +535,7 @@
                 </div>
               {/each}
               {#if rows.length > shown.length}
-                <div class="border-b p-3 text-center">
+                <div class="p-3 text-center">
                   <Button variant="outline" size="sm" onclick={() => (limit += PAGE)}>
                     Show {Math.min(PAGE, rows.length - shown.length)} more ({(rows.length - shown.length).toLocaleString()} left)
                   </Button>
@@ -549,7 +550,7 @@
                 <!-- A row with the thumbnail on the left; a card with it on top when the pane is narrow. -->
                 <button
                   data-video={v.id}
-                  class="flex w-full gap-3 border-b px-3 py-2.5 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset @max-2xs:flex-col @max-2xs:gap-2 {on
+                  class="flex w-full gap-3 rounded-lg px-2.5 py-2.5 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset @max-2xs:flex-col @max-2xs:gap-2 {on
                     ? 'bg-muted'
                     : 'hover:bg-muted/50'}"
                   aria-current={on ? 'true' : undefined}
@@ -582,7 +583,7 @@
                 <div class="text-muted-foreground px-4 py-14 text-center text-sm">Nothing here.</div>
               {/each}
               {#if groups.length > shownGroups.length}
-                <div class="border-b p-3 text-center">
+                <div class="p-3 text-center">
                   <Button variant="outline" size="sm" onclick={() => (videoLimit += VIDEO_PAGE)}>
                     Show {Math.min(VIDEO_PAGE, groups.length - shownGroups.length)} more ({(groups.length - shownGroups.length).toLocaleString()} left)
                   </Button>

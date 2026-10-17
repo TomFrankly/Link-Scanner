@@ -125,7 +125,7 @@
   </header>
 
   <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-    <section class="space-y-1 border-b px-4 py-3">
+    <section class="space-y-1 px-4 py-3">
       <a href={row.url} target="_blank" rel="noreferrer" class="font-mono text-sm font-medium break-all hover:underline">{row.url}</a>
       {#if moved}
         <div class="text-muted-foreground font-mono text-xs break-all">
@@ -138,7 +138,7 @@
     </section>
 
     <div class="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">Used in</div>
-    <ul class="divide-y border-b">
+    <ul class="pb-2">
       {#each vids as v (v.id)}
         <!-- Problem links in this video besides this one. -->
         {@const others = (problemsByVideo.get(v.id) ?? 0) - (countsAsProblem(row) ? 1 : 0)}

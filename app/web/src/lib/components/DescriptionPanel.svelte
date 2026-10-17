@@ -313,9 +313,9 @@
     style={side ? `width: ${linksWidth}px` : undefined}
     aria-label="Links in this video"
   >
-    <ul class="divide-y border-b">
+    <ul class="space-y-1 p-1.5">
       {#each allLinks as r (r.url)}
-        <li class="px-3 py-2">
+        <li class="px-1.5 py-1.5">
           <!-- Locate sits last, so a wider Plan fix / Change fix label grows leftward and never moves it. -->
           <div class="flex items-center gap-1">
             <StatusBadge category={r.cls.category} />
@@ -336,10 +336,10 @@
       {/each}
     </ul>
     {#if savedHere.length}
-      <div class="text-muted-foreground px-3 pt-2.5 pb-1 text-xs">Saved edits on this video</div>
-      <ul class="divide-y border-b">
+      <div class="text-muted-foreground px-3 pt-3 pb-1 text-xs">Saved edits on this video</div>
+      <ul class="space-y-1 px-1.5 pb-2">
         {#each savedHere as e (e.id)}
-          <li class="flex items-start gap-2 px-3 py-2">
+          <li class="flex items-start gap-2 px-1.5 py-1.5">
             <PencilLine class="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
             <div class="min-w-0 flex-1">
               <div class="truncate font-mono text-xs" title={e.replace || e.find}>{e.kind === 'text' ? `“${e.find}” → “${e.replace}”` : preview(e.find, e.replace)}</div>
@@ -359,7 +359,7 @@
 
   <!-- A container, so the buttons' labels follow this column's width, not the window's. -->
   <div class="@container flex min-h-0 min-w-0 flex-1 flex-col">
-    <div class="flex h-11 flex-none items-center gap-1 border-b px-2">
+    <div class="flex h-11 flex-none items-center gap-1 px-2">
       <!-- Which version of the text to show, as one menu so the toolbar stays on one line. -->
       <DropdownMenu.Root>
         <Hint text={current[2]} side="bottom">

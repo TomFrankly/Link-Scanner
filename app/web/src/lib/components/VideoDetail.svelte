@@ -53,7 +53,7 @@
 
 <!-- A container, so the header drops the thumbnail when the pane is narrow. -->
 <div class="@container flex h-full min-h-0 flex-col">
-  <header class="flex flex-none flex-wrap items-start gap-x-3 gap-y-1 border-b px-4 py-3">
+  <header class="flex flex-none flex-wrap items-start gap-x-3 gap-y-1 px-4 pt-3 pb-1">
     {#if onback}
       <Hint text="Back to the list" side="bottom">
         {#snippet children(tip)}<Button {...tip} size="icon-sm" variant="ghost" class="-ml-2" aria-label="Back to the list" onclick={onback}><ArrowLeft /></Button>{/snippet}
@@ -122,7 +122,7 @@
       {/key}
     {:else}
       <div class="@container h-full overflow-y-auto overscroll-contain">
-        <ul class="divide-y border-b">
+        <ul class="py-1.5">
           {#each group.links as r (r.url)}
             {@const final = movedTo(r)}
             <li class="grid gap-x-3 gap-y-1 px-4 py-2.5 @md:grid-cols-[10rem_minmax(0,1fr)]">
