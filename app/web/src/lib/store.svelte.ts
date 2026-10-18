@@ -10,9 +10,9 @@
 import { toast } from 'svelte-sonner';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { classify, cleanDomain, hostOf, type LinkResult, type Rules } from '$shared/core';
-import { FIXABLE } from '$shared/fixes';
+import { FIXABLE, urlsIn } from '$shared/fixes';
 import { effectiveRules, type RuleRow, type RuleType } from '$shared/rules';
-import type { FoundEdit, TextEdit } from '$shared/textEdits';
+import { applyTextEdits, type FoundEdit, type TextEdit } from '$shared/textEdits';
 import { api } from './api';
 import { FixBook } from './fixbook';
 import type { LinkFix, Me, Report, Row, ScanState, VideoRef } from './types';
@@ -133,6 +133,36 @@ function buildBase(report: Report | null): Omit<Row, 'cls'>[] {
   return [...byUrl].map(([url, vids]) => ({ url, host: hostOf(url), result: results.get(url) ?? null, videos: vids }));
 }
 
+/**
+ * Every video's description as the last full scan saved it, loaded after each report so the
+ * app can tell which links your saved edits took out of the drafts. Null until loaded.
+ */
+export const savedDescriptions = $state<{ ws: string | null; map: Map<string, string | null> | null }>({ ws: null, map: null });
+
+/**
+ * Per link, the videos whose draft no longer has it because a saved text edit took it out, say
+ * a whole paragraph about it deleted by hand. Planned fixes aren't counted here (they're checked
+ * separately). A description fetched this session (the Description tab, Check) wins over the
+ * scan's copy. A link only counts as taken out if the description had it to begin with, so a
+ * difference in how a URL is read can't mark it removed.
+ */
+function linksEditedOut(report: Report | null, saved: Map<string, string | null> | null) {
+  const out = new Map<string, Set<string>>();
+  if (!report || !saved || !report.textEdits.length) return out;
+  const byVideo = new Map<string, string[]>();
+  for (const { v, u } of report.videoLinks) (byVideo.get(v) ?? byVideo.set(v, []).get(v)!).push(u);
+  for (const v of report.videos) {
+    const d = fetchedDescriptions.get(v.id) ?? saved.get(v.id);
+    if (d == null) continue;
+    const r = applyTextEdits(d, report.textEdits, v.id, v.c);
+    if (!r.used.length) continue;
+    const before = new Set(urlsIn(d).map((x) => x.url));
+    const after = new Set(urlsIn(r.text).map((x) => x.url));
+    for (const u of byVideo.get(v.id) ?? []) if (before.has(u) && !after.has(u)) (out.get(u) ?? out.set(u, new Set()).get(u)!).add(v.id);
+  }
+  return out;
+}
+
 // A class because Svelte 5 can't export a bare `$derived` from a module; its fields can be.
 // Each layer recomputes only when its inputs change:
 // - `base` only when a new report arrives,
@@ -145,6 +175,10 @@ class Derived {
   fixes = $derived(new FixBook(app.report?.fixes ?? []));
   /** Each video's channel id, for channel-scoped fixes and edits. */
   channelOf = $derived(new Map((app.report?.videos ?? []).map((v) => [v.id, v.c])));
+  /** Per link, the videos your saved text edits took it out of (see linksEditedOut). */
+  editedOut = $derived(linksEditedOut(app.report, savedDescriptions.ws === app.wsId ? savedDescriptions.map : null));
+  /** Whether a link is gone from a video's draft: a planned fix for it, or a saved edit took it out. */
+  fixedInDraft = (url: string, video: { id: string; channelId: string }) => !!this.fixes.for(url, video.channelId) || !!this.editedOut.get(url)?.has(video.id);
   /** Channel names by id. */
   channelTitle = $derived(Object.fromEntries((app.report?.channels ?? []).map((c) => [c.id, c.title])) as Record<string, string>);
 }
@@ -184,6 +218,10 @@ export async function loadReport() {
   descriptionCache = null; // a scan may have changed them
   try {
     app.report = await api<Report>(`/w/${app.wsId}`);
+    const ws = app.wsId;
+    loadDescriptions()
+      .then((m) => Object.assign(savedDescriptions, { ws, map: new Map([...m].map(([id, x]) => [id, x.d])) }))
+      .catch(() => {}); // without them, edited-out links just aren't marked
   } catch (e) {
     fail(e);
   } finally {

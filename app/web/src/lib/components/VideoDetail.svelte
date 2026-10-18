@@ -135,7 +135,7 @@
                   <PlannedFix url={r.url} />
                 </div>
                 <!-- Locate sits last, so a wider Plan fix / Change fix label grows leftward and never moves it. -->
-                <PlanFixButton row={r} />
+                <PlanFixButton row={r} video={v} />
                 <Hint text="Show in description">
                   {#snippet children(tip)}
                     <button
@@ -154,7 +154,7 @@
         {#if group.problems.length}
           <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
             <span class="text-muted-foreground text-xs">
-              {group.problems.filter((p) => data.fixes.for(p.url, v.channelId)).length} of {group.problems.length} problem links have a planned fix
+              {group.problems.filter((p) => data.fixedInDraft(p.url, v)).length} of {group.problems.length} problem links are fixed in the draft
             </span>
             <Button size="sm" onclick={() => (tab = 'description')}><FileText /> Fix description</Button>
           </div>

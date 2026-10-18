@@ -103,14 +103,14 @@
   const attentionCount = $derived(inChannel.filter((r) => FIXABLE.includes(r.cls.category)).length);
   const videosAffected = $derived(new Set(inChannel.filter((r) => FIXABLE.includes(r.cls.category)).flatMap((r) => r.videos.map((v) => v.id))).size);
   const videosInScope = $derived(channel === 'all' ? report.videos.length : report.videos.filter((v) => v.c === channel).length);
-  const plannedCount = $derived(inChannel.filter((r) => FIXABLE.includes(r.cls.category) && data.fixes.has(r.url)).length);
+  const plannedCount = $derived(inChannel.filter((r) => FIXABLE.includes(r.cls.category) && (data.fixes.has(r.url) || r.videos.every((v) => data.fixedInDraft(r.url, v)))).length);
   const scopeChannels = $derived(channel === 'all' ? report.channels : report.channels.filter((c) => c.id === channel));
   // The scan details behind the heading's info icon.
   const scanSummary = $derived(
     [
       scopeChannels.map((c) => c.title).join(', '),
       `${inChannel.length.toLocaleString()} unique links checked`,
-      plannedCount ? `${plannedCount} with a planned fix` : '',
+      plannedCount ? `${plannedCount} fixed in the drafts` : '',
       lastScan ? `Last scan ${lastScan}` : '',
     ]
       .filter(Boolean)
@@ -559,7 +559,12 @@
                   {#if final}<span class="text-muted-foreground block truncate font-mono text-xs">→ {final}</span>{/if}
                   {#if archiveLookups.has(r.url)}
                     <span class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs"><Loader class="size-3 motion-safe:animate-spin" /> Looking for an archived copy…</span>
-                  {:else if data.fixes.has(r.url)}<span class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs"><PencilLine class="size-3" /> Fix planned</span>{/if}
+                  {:else if data.fixes.has(r.url)}<span class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs"><PencilLine class="size-3" /> Fix planned</span>
+                  {:else if data.editedOut.get(r.url)?.size}
+                    {@const n = data.editedOut.get(r.url)!.size}
+                    <span class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs"
+                      ><PencilLine class="size-3" /> {n >= r.videos.length ? 'Removed by your edits' : `Removed in ${n} of ${r.videos.length} videos`}</span
+                    >{/if}
                 </button>
               {:else}
                 <div class="text-muted-foreground px-4 py-14 text-center text-sm">

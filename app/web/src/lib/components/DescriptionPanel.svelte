@@ -365,7 +365,7 @@
           <!-- Locate sits last, so a wider Plan fix / Change fix label grows leftward and never moves it. -->
           <div class="flex items-center gap-1">
             <StatusBadge category={r.cls.category} />
-            <span class="ml-auto"><PlanFixButton row={r} /></span>
+            <span class="ml-auto"><PlanFixButton row={r} {video} /></span>
             <Hint text="Show in description">
               {#snippet children(tip)}<button
                 {...tip}

@@ -9,6 +9,7 @@
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import FileText from '@lucide/svelte/icons/file-text';
   import Play from '@lucide/svelte/icons/play';
+  import PencilLine from '@lucide/svelte/icons/pencil-line';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import { slide } from 'svelte/transition';
   import { SvelteSet } from 'svelte/reactivity';
@@ -215,6 +216,7 @@
                 <span class="block truncate text-sm" title={v.title}>{v.title}</span>
                 <span class="text-muted-foreground flex flex-wrap gap-x-2 text-xs">
                   {#if multiChannel}<span>{channelTitle[v.channelId]}</span>{/if}
+                  {#if !data.fixes.for(row.url, v.channelId) && data.editedOut.get(row.url)?.has(v.id)}<span class="flex items-center gap-1"><PencilLine class="size-3" /> Removed by your edits</span>{/if}
                   {#if others > 0}<span class="text-[#8a5a00] dark:text-[#fac34d]">+{others} other problem link{others === 1 ? '' : 's'}</span>{/if}
                 </span>
               </span>
